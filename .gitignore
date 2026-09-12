@@ -1,0 +1,10 @@
+# Build artifacts
+build/
+*.o
+*.out
+
+# Jupyter
+.ipynb_checkpoints/
+
+# OS
+.DS_Store
