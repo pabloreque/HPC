@@ -29,7 +29,7 @@ cd Session_1
 mkdir build && cd build
 cmake ..
 cmake --build .
-./fd_order
+./session_1_prequeijo
 ```
 
 This prints a convergence table to the console and writes `build/results.h5`,

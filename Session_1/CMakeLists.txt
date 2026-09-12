@@ -10,6 +10,6 @@ endif()
 
 find_package(HDF5 REQUIRED COMPONENTS CXX)
 
-add_executable(fd_order src/main.cpp)
-target_include_directories(fd_order PRIVATE ${HDF5_INCLUDE_DIRS})
-target_link_libraries(fd_order PRIVATE ${HDF5_CXX_LIBRARIES})
+add_executable(session_1_prequeijo src/main.cpp)
+target_include_directories(session_1_prequeijo PRIVATE ${HDF5_INCLUDE_DIRS})
+target_link_libraries(session_1_prequeijo PRIVATE ${HDF5_CXX_LIBRARIES})
