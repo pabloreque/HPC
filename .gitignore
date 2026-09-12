@@ -2,9 +2,18 @@
 build/
 *.o
 *.out
+*.h5
+
+# Python environment
+.venv/
+__pycache__/
+*.pyc
 
 # Jupyter
 .ipynb_checkpoints/
 
 # OS
 .DS_Store
+
+# Editor
+.vscode/

@@ -59,3 +59,9 @@ notebook.
 `p_forward` converges to ~1.0 and `p_central` to ~2.0 as `dx` decreases, until
 floating-point round-off error starts to dominate for very small `dx` values
 (expected behavior, not a bug).
+
+## Questions I have
+
+- Should I always prefix standard library names with `std::` (as I do
+  throughout `main.cpp`), or is `using namespace std;` (or per-name
+  `using std::vector;` declarations) acceptable/preferred in course code?
