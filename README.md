@@ -1,4 +1,4 @@
-# HPC
+# HPC - Pablo Requeijo
 
 Coursework for the HPC (High Performance Computing) class.
 
