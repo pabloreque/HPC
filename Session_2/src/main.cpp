@@ -22,13 +22,16 @@ otherwise it is created. To regenerate both notebook datasets:
 #include <cmath>
 #include <cstddef>
 #include <cstdio>
+#include <exception>
 #include <iostream>
 #include <string>
 
 #include "boris_pusher.hpp"
 #include "hdf5_writer.hpp"
 #include "input.hpp"
+#include "vector3.hpp"
 
+// Prints |v0|, |v_final| and mean velocity of one trajectory.
 void printSummary(const Trajectory &trajectory) {
     const double speed0 = norm(trajectory.velocity.front());
     const double speedN = norm(trajectory.velocity.back());

@@ -18,7 +18,9 @@ invalid values fail with a descriptive error.
 #include <vector>
 
 #include "boris_pusher.hpp"
+#include "vector3.hpp"
 
+// Trims leading and trailing whitespace (spaces, tabs, newlines).
 inline std::string trim(const std::string &s) {
     const std::string::size_type first = s.find_first_not_of(" \t\r\n");
     if (first == std::string::npos) {
@@ -28,6 +30,7 @@ inline std::string trim(const std::string &s) {
     return s.substr(first, last - first + 1);
 }
 
+// Parses "x y z" into a Vector3, failing clearly on bad input.
 inline Vector3 parseVector3(const std::string &s, const std::string &key) {
     std::istringstream in(s);
     Vector3 v;
@@ -45,6 +48,10 @@ struct Input {
     std::vector<Particle> particles;
 };
 
+// Reads the whole .txt into Input, validating every line: a q=/m=
+// line applies to the next particle, and each particle needs its own
+// pair -- carrying values over silently would mask a forgotten line
+// with wrong physics instead of failing loudly.
 inline Input parseInputFile(const std::string &path) {
     std::ifstream file(path);
     if (!file) {
@@ -53,10 +60,6 @@ inline Input parseInputFile(const std::string &path) {
     Input input;
     bool hasDt = false, hasSteps = false;
     bool hasE = false, hasB = false;
-    // Species of the particle currently being defined: a q=/m= line
-    // applies to the next particle, and each particle needs its own
-    // pair -- carrying values over silently would mask a forgotten line
-    // with wrong physics instead of failing loudly.
     Species pendingSpecies{0.0, 0.0};
     bool hasPendingCharge = false, hasPendingMass = false;
     bool lastParticleOpen = false;

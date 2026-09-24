@@ -12,9 +12,11 @@ and the chosen tolerances.
 #include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
 #include <cmath>
+#include <cstddef>
 
 #include "boris_pusher.hpp"
 #include "scenarios.hpp"
+#include "vector3.hpp"
 
 TEST_CASE("Boris pusher conserves speed exactly in a pure magnetic field, at any dt",
           "[boris][energy-conservation]") {
