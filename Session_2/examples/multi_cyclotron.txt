@@ -1,0 +1,24 @@
+# Boris pusher input (key=value, '#' = comment).
+# Uniform static E and B shared by all particles.
+# Four particles, fixed pseudo-random species (seed 3): mixed charges,
+# masses and 3D initial velocities (including v_z != 0).
+E=0 0 0
+B=0 0 1
+dt=0.0031415926535898
+steps=6000
+q=1.0
+m=1.0
+x=0 0 0
+v=0.576044 -0.721330 0.118007
+q=-1.0
+m=0.5
+x=0 0 0
+v=-0.814639 -0.649464 -0.309340
+q=-1.0
+m=0.5
+x=0 0 0
+v=-1.131568 -0.129925 -0.484680
+q=1.0
+m=1.0
+x=0 0 0
+v=1.444842 0.098172 -0.153324
