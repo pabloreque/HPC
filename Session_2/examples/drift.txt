@@ -1,0 +1,12 @@
+# Boris pusher input (key=value, '#' = comment).
+# Uniform static E and B shared by all particles.
+# Same gyration as cyclotron plus guiding-center drift v_d = ExB/B^2 = (0,-0.1,0).
+# Each particle has its own q, m, x, v lines (here a single species).
+dt=0.031415926535897934
+steps=2000
+E=0.1 0 0
+B=0 0 1
+q=1.0
+m=1.0
+x=0 0 0
+v=1 0 0

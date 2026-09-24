@@ -1,8 +1,11 @@
-// Physical setup shared by the simulation (main.cpp, which exports results
-// for plotting) and the test suite (test_boris_pusher.cpp, which checks
-// those same results against closed-form solutions). Keeping the scenario
-// parameters here, in one place, means the tests can never silently drift
-// from what was actually simulated and plotted.
+/*
+Pablo Requeijo, September 24 2026.
+Session 2, HPC coursework: Boris pusher.
+Test-only fixtures (cyclotron / coarse / E x B drift) + analytic references.
+
+Test-only fixtures: special-case physical setups (cyclotron, coarse dt,
+E x B drift) plus their closed-form reference solutions.
+*/
 #pragma once
 
 #include <cmath>
@@ -23,11 +26,8 @@ constexpr double kE0 = 0.1;
 
 struct Scenario {
     std::string name;
-    double charge;
-    double mass;
-    Vector3 E;
-    Vector3 B;
-    ParticleState initialState;
+    Particle particle;
+    EMFields fields;
     double dt;
     int numSteps;
 };
@@ -52,11 +52,8 @@ inline Scenario cyclotronScenario() {
     const int stepsPerPeriod = 1000;
     const int numPeriods = 3;
     return Scenario{"cyclotron",
-                     kCharge,
-                     kMass,
-                     Vector3{0.0, 0.0, 0.0},
-                     B,
-                     ParticleState{Vector3{0.0, 0.0, 0.0}, Vector3{kV0, 0.0, 0.0}},
+                     Particle{Vector3{0.0, 0.0, 0.0}, Vector3{kV0, 0.0, 0.0}, Species{kCharge, kMass}},
+                     EMFields{Vector3{0.0, 0.0, 0.0}, B},
                      period / stepsPerPeriod,
                      stepsPerPeriod * numPeriods};
 }
@@ -70,11 +67,8 @@ inline Scenario cyclotronScenarioCoarseTimestep() {
     const int stepsPerPeriod = 8;
     const int numPeriods = 5;
     return Scenario{"cyclotron_coarse",
-                     kCharge,
-                     kMass,
-                     Vector3{0.0, 0.0, 0.0},
-                     B,
-                     ParticleState{Vector3{0.0, 0.0, 0.0}, Vector3{kV0, 0.0, 0.0}},
+                     Particle{Vector3{0.0, 0.0, 0.0}, Vector3{kV0, 0.0, 0.0}, Species{kCharge, kMass}},
+                     EMFields{Vector3{0.0, 0.0, 0.0}, B},
                      period / stepsPerPeriod,
                      stepsPerPeriod * numPeriods};
 }
@@ -88,11 +82,8 @@ inline Scenario exbDriftScenario() {
     const int stepsPerPeriod = 200;
     const int numPeriods = 10;
     return Scenario{"exb_drift",
-                     kCharge,
-                     kMass,
-                     E,
-                     B,
-                     ParticleState{Vector3{0.0, 0.0, 0.0}, Vector3{kV0, 0.0, 0.0}},
+                     Particle{Vector3{0.0, 0.0, 0.0}, Vector3{kV0, 0.0, 0.0}, Species{kCharge, kMass}},
+                     EMFields{E, B},
                      period / stepsPerPeriod,
                      stepsPerPeriod * numPeriods};
 }

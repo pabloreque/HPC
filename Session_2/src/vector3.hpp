@@ -1,6 +1,12 @@
-// Minimal 3D vector type used throughout the Boris pusher: position, velocity,
-// and field values are all Vector3, and the pusher itself is expressed purely
-// in terms of the operators below (+, -, scalar *, dot, cross, norm).
+/*
+Pablo Requeijo, September 24 2026.
+Session 2, HPC coursework: Boris pusher.
+Minimal 3D vector type + operators used by the pusher.
+
+Minimal 3D vector type used throughout the Boris pusher: position, velocity,
+and field values are all Vector3, and the pusher itself is expressed purely
+in terms of the operators below (+, -, scalar *, dot, cross, norm).
+*/
 #pragma once
 
 #include <cmath>

@@ -23,7 +23,7 @@ FetchContent_Declare(
 FetchContent_MakeAvailable(Catch2)
 
 add_executable(session_2_prequeijo_test tests/test_boris_pusher.cpp)
-target_include_directories(session_2_prequeijo_test PRIVATE src)
+target_include_directories(session_2_prequeijo_test PRIVATE src tests)
 target_link_libraries(session_2_prequeijo_test PRIVATE Catch2::Catch2WithMain)
 
 list(APPEND CMAKE_MODULE_PATH ${catch2_SOURCE_DIR}/extras)

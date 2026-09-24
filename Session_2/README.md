@@ -33,7 +33,7 @@ Running the pusher and eyeballing a plausible trajectory is not enough — a sub
 
 These three checks are implemented as [Catch2](https://github.com/catchorg/Catch2) `TEST_CASE`s in `tests/test_boris_pusher.cpp`, run via `ctest`, and independently visualized in `analysis.ipynb`.
 
-`src/scenarios.hpp` is the single source of truth for the physical setup (charge, mass, `E`, `B`, initial state, `dt`, step count) of each scenario — it's included by both `main.cpp` (which exports what actually gets plotted) and `test_boris_pusher.cpp` (which validates it), so the test can never silently drift from what's simulated.
+`src/` is a generic pusher: it reads arbitrary initial conditions from a `.txt` file and knows nothing about the test physics. The special-case setups live only in `tests/scenarios.hpp`. The example inputs in `examples/` mirror those scenarios (`cyclotron.txt` ↔ `cyclotronScenario()`, `drift.txt` ↔ `exbDriftScenario()`), so the notebook visualizes exactly what the tests validate — keep the mirrored values in sync if you change either side.
 
 ## Project layout
 
@@ -42,14 +42,21 @@ Session_2/
 ├── CMakeLists.txt
 ├── src/
 │   ├── vector3.hpp             # minimal 3D vector type + operators
-│   ├── boris_pusher.hpp        # ParticleState, Trajectory, borisStep(), simulateBorisPusher()
-│   ├── scenarios.hpp           # shared scenario definitions + analytic reference solutions
-│   └── main.cpp                # runs both scenarios, writes results.h5
+│   ├── boris_pusher.hpp        # Species, Particle, EMFields, Trajectory, borisStep(), simulateBorisPusher()
+│   ├── input.hpp               # .txt parsing: trim, Input, parseInputFile()
+│   ├── hdf5_writer.hpp         # HDF5 output: datasets, groups, file handling
+│   └── main.cpp                # generic driver: <input.txt> -> pusher -> results.h5 group
+├── examples/
+│   ├── cyclotron.txt           # input mirroring the cyclotron test scenario
+│   └── drift.txt               # input mirroring the E x B drift test scenario
 ├── tests/
+│   ├── scenarios.hpp           # test-only fixtures + analytic reference solutions
 │   └── test_boris_pusher.cpp   # Catch2 tests for the three checks above
 ├── analysis.ipynb              # loads results.h5, plots trajectories against analytic references
 └── README.md
 ```
+
+Input format (`key=value`, `#` = comment): `dt`, `steps`, `E=(Ex Ey Ez)`, `B=(Bx By Bz)`, then one particle after another, each with its own `q=`, `m=`, `x=(x y z)`, `v=(vx vy vz)` lines (a `q=`/`m=` line applies to the next particle, so each particle can be a different species). Assumes uniform static `E`/`B` shared by all particles.
 
 ## Build and run (C++)
 
@@ -62,13 +69,16 @@ cmake --build .
 
 The first configure fetches [Catch2](https://github.com/catchorg/Catch2) v3.5.4 via CMake `FetchContent` (requires internet access).
 
-Run the simulation:
+Run the simulation (one input file = one run, one group; run twice to regenerate both notebook datasets):
 
 ```bash
-./session_2_prequeijo
+./session_2_prequeijo ../examples/cyclotron.txt results.h5 /cyclotron
+./session_2_prequeijo ../examples/drift.txt results.h5 /drift
 ```
 
-This prints a speed-conservation and drift-velocity summary to the console and writes `build/results.h5`, an HDF5 file with two groups:
+Full usage: `./session_2_prequeijo <input.txt> [output.h5] [group]` (defaults: `results.h5`, `/trajectory`). If the output file exists the group is replaced, otherwise the file is created. With more than one particle in the input, each trajectory is written to `group/particle_i`.
+
+This prints a per-particle summary (`|v0|`, `|v_final|`, mean velocity — no analytic comparison; that lives in the tests) and writes `build/results.h5`, an HDF5 file with two groups:
 
 - `/cyclotron` — `t`, `x`, `y`, `z`, `vx`, `vy`, `vz` for the pure-B scenario
 - `/drift` — same datasets for the E×B scenario
@@ -90,7 +100,7 @@ cd Session_2
 jupyter notebook analysis.ipynb
 ```
 
-Run `./session_2_prequeijo` first so `build/results.h5` exists before opening the notebook.
+Run both `./session_2_prequeijo` commands above first so `build/results.h5` exists before opening the notebook.
 
 ## Expected result
 
