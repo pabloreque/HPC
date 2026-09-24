@@ -6,6 +6,8 @@ Minimal 3D vector type + operators used by the pusher.
 Minimal 3D vector type used throughout the Boris pusher: position, velocity,
 and field values are all Vector3, and the pusher itself is expressed purely
 in terms of the operators below (+, -, scalar *, dot, cross, norm).
+Not all operators are used in the pusher itself, but it is convenient to have
+them in case they were needed in the future.
 */
 #pragma once
 
