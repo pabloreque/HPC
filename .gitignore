@@ -17,3 +17,9 @@ __pycache__/
 
 # Editor
 .vscode/
+
+# Claude Code
+CLAUDE.md
+
+# Class Notes
+a.md
