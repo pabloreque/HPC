@@ -44,6 +44,7 @@ Session_2/
 │   ├── vector3.hpp             # minimal 3D vector type + operators
 │   ├── boris_pusher.hpp        # Species, Particle, EMFields, Trajectory, borisStep(), simulateBorisPusher()
 │   ├── input.hpp               # .txt parsing: trim, Input, parseInputFile()
+│   ├── cli.hpp                 # argv parsing: RunConfig, parseArgs()
 │   ├── hdf5_writer.hpp         # HDF5 output: datasets, groups, file handling
 │   └── main.cpp                # generic driver: <input.txt> -> pusher -> results.h5 group
 ├── examples/
