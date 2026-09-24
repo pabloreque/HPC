@@ -1,14 +1,20 @@
-// Numerically demonstrates the order of accuracy of two finite difference
-// formulas for the first derivative:
-//   forward: (f(x+dx) - f(x)) / dx            -> O(dx)   (1st order)
-//   central: (f(x+dx) - f(x-dx)) / (2*dx)     -> O(dx^2) (2nd order)
-//
-// Uses f(x) = sin(x), with exact derivative f'(x) = cos(x), and measures
-// the absolute error for a sequence of step sizes dx that is halved on
-// every iteration. The observed order is estimated as:
-//   p = log2( error(dx) / error(dx/2) )
-// This is because the error is ~ C*dx^p, which implies
-//   error(dx)/error(dx/2) = 2^p.
+/*
+Pablo Requeijo, September 12 2026.
+Session 1, HPC coursework: finite differences.
+Forward vs. central difference order of accuracy on f(x)=sin(x), results to HDF5.
+
+Numerically demonstrates the order of accuracy of two finite difference
+formulas for the first derivative:
+  forward: (f(x+dx) - f(x)) / dx            -> O(dx)   (1st order)
+  central: (f(x+dx) - f(x-dx)) / (2*dx)     -> O(dx^2) (2nd order)
+
+Uses f(x) = sin(x), with exact derivative f'(x) = cos(x), and measures
+the absolute error for a sequence of step sizes dx that is halved on
+every iteration. The observed order is estimated as:
+  p = log2( error(dx) / error(dx/2) )
+This is because the error is ~ C*dx^p, which implies
+  error(dx)/error(dx/2) = 2^p.
+*/
 
 #include <H5Cpp.h>
 #include <cmath>
