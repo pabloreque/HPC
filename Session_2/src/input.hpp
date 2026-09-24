@@ -48,27 +48,16 @@ struct Input {
     std::vector<Particle> particles;
 };
 
-// Reads the whole .txt into Input, validating every line: a q=/m=
-// line applies to the next particle, and each particle needs its own
-// pair -- carrying values over silently would mask a forgotten line
-// with wrong physics instead of failing loudly.
-inline Input parseInputFile(const std::string &path) {
-    std::ifstream file(path);
-    if (!file) {
-        throw std::runtime_error("cannot open input file '" + path + "'");
-    }
-    Input input;
-    bool hasDt = false, hasSteps = false;
-    bool hasE = false, hasB = false;
-    Species pendingSpecies{0.0, 0.0};
-    bool hasPendingCharge = false, hasPendingMass = false;
-    bool lastParticleOpen = false;
+struct KeyLine {
+    std::string key;
+    std::string value;
+};
 
+// Reads the next meaningful "key=value" line: strips '#' comments,
+// skips blank lines, and fails on lines without '=' or with an empty
+// value. Returns false at EOF. lineNo tracks physical lines for errors.
+inline bool nextKeyLine(std::ifstream &file, const std::string &path, int &lineNo, KeyLine &out) {
     std::string line;
-    int lineNo = 0;
-    auto fail = [&](const std::string &message) {
-        throw std::runtime_error(path + ":" + std::to_string(lineNo) + ": " + message);
-    };
     while (std::getline(file, line)) {
         ++lineNo;
         // Strip comments.
@@ -78,81 +67,123 @@ inline Input parseInputFile(const std::string &path) {
         }
         const std::string::size_type eq = line.find('=');
         if (eq == std::string::npos) {
-            fail("expected key=value");
+            throw std::runtime_error(path + ":" + std::to_string(lineNo) + ": expected key=value");
         }
-        const std::string key = trim(line.substr(0, eq));
-        const std::string value = trim(line.substr(eq + 1));
-        auto needValue = [&](const std::string &k) {
-            if (value.empty()) {
-                fail("empty value for '" + k + "'");
-            }
-        };
+        out.key = trim(line.substr(0, eq));
+        out.value = trim(line.substr(eq + 1));
+        if (out.value.empty()) {
+            throw std::runtime_error(path + ":" + std::to_string(lineNo) + ": empty value for '" + out.key + "'");
+        }
+        return true;
+    }
+    return false;
+}
+
+// Accumulates particles and global settings line by line: a q=/m=
+// line applies to the next particle, and each particle needs its own
+// pair -- carrying values over silently would mask a forgotten line
+// with wrong physics instead of failing loudly.
+struct InputBuilder {
+    Input input;
+    std::string path;
+    int lineNo = 0;
+    bool hasDt = false, hasSteps = false;
+    bool hasE = false, hasB = false;
+    Species pendingSpecies{0.0, 0.0};
+    bool hasPendingCharge = false, hasPendingMass = false;
+    bool lastParticleOpen = false;
+
+    [[noreturn]] void fail(const std::string &message) const {
+        throw std::runtime_error(path + ":" + std::to_string(lineNo) + ": " + message);
+    }
+
+    // Opens a new particle from its x= line, carrying the pending q=/m=.
+    void openParticle(const std::string &value) {
+        if (lastParticleOpen) {
+            fail("each particle needs one v= line before the next x=");
+        }
+        if (!hasPendingCharge || !hasPendingMass) {
+            fail("each particle needs its own q= and m= lines before x=");
+        }
+        input.particles.push_back(Particle{parseVector3(value, "x"), Vector3{}, pendingSpecies});
+        hasPendingCharge = false;
+        hasPendingMass = false;
+        lastParticleOpen = true;
+    }
+
+    // Closes the open particle with its v= line.
+    void closeParticle(const std::string &value) {
+        if (!lastParticleOpen) {
+            fail("v= without a preceding x= for the same particle");
+        }
+        input.particles.back().velocity = parseVector3(value, "v");
+        lastParticleOpen = false;
+    }
+
+    void applyLine(const std::string &key, const std::string &value) {
         if (key == "dt") {
-            needValue(key);
             input.dt = std::stod(value);
             hasDt = true;
         } else if (key == "steps") {
-            needValue(key);
             input.numSteps = std::stoi(value);
             hasSteps = true;
         } else if (key == "E") {
-            needValue(key);
             input.E = parseVector3(value, key);
             hasE = true;
         } else if (key == "B") {
-            needValue(key);
             input.B = parseVector3(value, key);
             hasB = true;
         } else if (key == "q") {
-            needValue(key);
             pendingSpecies.charge = std::stod(value);
             hasPendingCharge = true;
         } else if (key == "m") {
-            needValue(key);
             pendingSpecies.mass = std::stod(value);
             if (pendingSpecies.mass <= 0.0) {
                 fail("m must be > 0");
             }
             hasPendingMass = true;
         } else if (key == "x") {
-            needValue(key);
-            if (lastParticleOpen) {
-                fail("each particle needs one v= line before the next x=");
-            }
-            if (!hasPendingCharge || !hasPendingMass) {
-                fail("each particle needs its own q= and m= lines before x=");
-            }
-            input.particles.push_back(Particle{parseVector3(value, key), Vector3{}, pendingSpecies});
-            hasPendingCharge = false;
-            hasPendingMass = false;
-            lastParticleOpen = true;
+            openParticle(value);
         } else if (key == "v") {
-            needValue(key);
-            if (!lastParticleOpen) {
-                fail("v= without a preceding x= for the same particle");
-            }
-            input.particles.back().velocity = parseVector3(value, key);
-            lastParticleOpen = false;
+            closeParticle(value);
         } else {
             fail("unknown key '" + key + "'");
         }
     }
+};
 
+// Checks required keys and value ranges once all lines are consumed.
+inline void validateInput(const InputBuilder &b) {
     for (const char *k : {"dt", "steps", "E", "B"}) {
-        const bool ok = (std::string(k) == "dt" && hasDt) || (std::string(k) == "steps" && hasSteps) ||
-                        (std::string(k) == "E" && hasE) || (std::string(k) == "B" && hasB);
+        const bool ok = (std::string(k) == "dt" && b.hasDt) || (std::string(k) == "steps" && b.hasSteps) ||
+                        (std::string(k) == "E" && b.hasE) || (std::string(k) == "B" && b.hasB);
         if (!ok) {
-            throw std::runtime_error(path + ": missing required key '" + std::string(k) + "'");
+            throw std::runtime_error(b.path + ": missing required key '" + std::string(k) + "'");
         }
     }
-    if (input.dt <= 0.0) {
-        throw std::runtime_error(path + ": dt must be > 0");
+    if (b.input.dt <= 0.0) {
+        throw std::runtime_error(b.path + ": dt must be > 0");
     }
-    if (input.numSteps < 0) {
-        throw std::runtime_error(path + ": steps must be >= 0");
+    if (b.input.numSteps < 0) {
+        throw std::runtime_error(b.path + ": steps must be >= 0");
     }
-    if (input.particles.empty() || lastParticleOpen) {
-        throw std::runtime_error(path + ": need at least one particle with x= and v= lines");
+    if (b.input.particles.empty() || b.lastParticleOpen) {
+        throw std::runtime_error(b.path + ": need at least one particle with x= and v= lines");
     }
-    return input;
+}
+
+// Reads the whole .txt into a validated Input.
+inline Input parseInputFile(const std::string &path) {
+    std::ifstream file(path);
+    if (!file) {
+        throw std::runtime_error("cannot open input file '" + path + "'");
+    }
+    InputBuilder builder;
+    builder.path = path;
+    KeyLine raw;
+    while (nextKeyLine(file, path, builder.lineNo, raw)) {
+        builder.applyLine(raw.key, raw.value);
+    }
+    validateInput(builder);
+    return builder.input;
 }
