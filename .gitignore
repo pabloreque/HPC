@@ -19,7 +19,11 @@ __pycache__/
 .vscode/
 
 # Claude Code
-CLAUDE.md
+.claude/
 
 # Class Notes
 a.md
+Notes.md
+
+# Course slides
+docs/

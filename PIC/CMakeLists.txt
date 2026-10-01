@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.14)
-project(BorisPusher CXX)
+project(PIC CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -10,9 +10,9 @@ endif()
 
 find_package(HDF5 REQUIRED COMPONENTS CXX)
 
-add_executable(session_2_prequeijo src/main.cpp)
-target_include_directories(session_2_prequeijo PRIVATE ${HDF5_INCLUDE_DIRS})
-target_link_libraries(session_2_prequeijo PRIVATE ${HDF5_CXX_LIBRARIES})
+add_executable(pic_prequeijo src/main.cpp)
+target_include_directories(pic_prequeijo PRIVATE ${HDF5_INCLUDE_DIRS})
+target_link_libraries(pic_prequeijo PRIVATE ${HDF5_CXX_LIBRARIES})
 
 include(FetchContent)
 FetchContent_Declare(
@@ -22,11 +22,12 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(Catch2)
 
-add_executable(session_2_prequeijo_test tests/test_boris_pusher.cpp)
-target_include_directories(session_2_prequeijo_test PRIVATE src tests)
-target_link_libraries(session_2_prequeijo_test PRIVATE Catch2::Catch2WithMain)
+add_executable(pic_prequeijo_test tests/test_boris_pusher.cpp
+                                  tests/test_input.cpp)
+target_include_directories(pic_prequeijo_test PRIVATE src tests)
+target_link_libraries(pic_prequeijo_test PRIVATE Catch2::Catch2WithMain)
 
 list(APPEND CMAKE_MODULE_PATH ${catch2_SOURCE_DIR}/extras)
 include(CTest)
 include(Catch)
-catch_discover_tests(session_2_prequeijo_test)
+catch_discover_tests(pic_prequeijo_test)

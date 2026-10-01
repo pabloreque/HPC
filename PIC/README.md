@@ -16,7 +16,7 @@ Correctness is checked three ways (speed conservation, cyclotron circle, E×B dr
 ## Project layout
 
 ```
-Session_2/
+PIC/
 ├── CMakeLists.txt
 ├── src/
 │   ├── vector3.hpp             # 3D vector type + operators
@@ -32,8 +32,9 @@ Session_2/
 │   └── multi_drift.txt         # E×B input, same 4 particles
 ├── tests/
 │   ├── scenarios.hpp           # test fixtures + analytic references
-│   └── test_boris_pusher.cpp   # Catch2 tests
-├── analysis.ipynb              # loads results.h5, plots vs analytic references
+│   ├── test_boris_pusher.cpp   # Catch2 tests of the pusher
+│   └── test_input.cpp          # Catch2 tests of the .txt input parser
+├── analysis_session_2.ipynb              # loads results.h5, plots vs analytic references
 └── README.md
 ```
 
@@ -42,7 +43,7 @@ Input format (`key=value`, `#` = comment): `dt`, `steps`, `E`, `B`, then per-par
 ## Build and run (C++)
 
 ```bash
-cd Session_2
+cd PIC
 mkdir build && cd build
 cmake ..
 cmake --build .
@@ -51,31 +52,31 @@ cmake --build .
 The first configure fetches [Catch2](https://github.com/catchorg/Catch2) v3.5.4 via CMake `FetchContent` (requires internet access).
 
 ```bash
-./session_2_prequeijo ../examples/cyclotron.txt results.h5 /cyclotron
-./session_2_prequeijo ../examples/drift.txt results.h5 /drift
-./session_2_prequeijo ../examples/multi_cyclotron.txt results.h5 /multi_cyclotron
-./session_2_prequeijo ../examples/multi_drift.txt results.h5 /multi_drift
+./pic_prequeijo ../examples/cyclotron.txt results.h5 /cyclotron
+./pic_prequeijo ../examples/drift.txt results.h5 /drift
+./pic_prequeijo ../examples/multi_cyclotron.txt results.h5 /multi_cyclotron
+./pic_prequeijo ../examples/multi_drift.txt results.h5 /multi_drift
 ```
 
 This prints a per-particle summary and writes `build/results.h5` with four groups (`/cyclotron`, `/drift`, `/multi_cyclotron`, `/multi_drift`), each with `t`, `x`, `y`, `z`, `vx`, `vy`, `vz` (per `particle_N` subgroup for the multi runs).
 
-Full usage: `./session_2_prequeijo <input.txt> [output.h5] [group]` (defaults `results.h5`, `/trajectory`).
+Full usage: `./pic_prequeijo <input.txt> [output.h5] [group]` (defaults `results.h5`, `/trajectory`).
 
 Run the tests:
 
 ```bash
 ctest --output-on-failure
 # or directly:
-./session_2_prequeijo_test
+./pic_prequeijo_test
 ```
 
 ## Analysis notebook
 
-`analysis.ipynb` reads `build/results.h5` with `h5py` and plots each scenario against its analytic reference (including per-particle checks for the mixed-species runs).
+`analysis_session_2.ipynb` reads `build/results.h5` with `h5py` and plots each scenario against its analytic reference (including per-particle checks for the mixed-species runs).
 
 ```bash
-cd Session_2
-jupyter notebook analysis.ipynb
+cd PIC
+jupyter notebook analysis_session_2.ipynb
 ```
 
 Run the C++ program first so `build/results.h5` exists before opening the notebook.

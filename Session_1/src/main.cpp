@@ -1,7 +1,8 @@
 /*
 Pablo Requeijo, September 12 2026.
 Session 1, HPC coursework: finite differences.
-Forward vs. central difference order of accuracy on f(x)=sin(x), results to HDF5.
+Forward vs. central difference order of accuracy on f(x)=sin(x), results to
+HDF5.
 
 Numerically demonstrates the order of accuracy of two finite difference
 formulas for the first derivative:
@@ -24,11 +25,12 @@ This is because the error is ~ C*dx^p, which implies
 #include <string>
 #include <vector>
 
-// Named alias so signatures read as "takes a scalar function" instead of the raw std::function type.
+// Named alias so signatures read as "takes a scalar function" instead of the
+// raw std::function type.
 using ScalarFunction = std::function<double(double)>;
 
-// Fixed-field bundle (like a Python dataclass) so the three parallel vectors travel
-// together as one coherent result instead of three loose arguments.
+// Fixed-field bundle (like a Python dataclass) so the three parallel vectors
+// travel together as one coherent result instead of three loose arguments.
 struct ConvergenceResults {
     std::vector<double> stepSizes;
     std::vector<double> forwardErrors;
@@ -51,22 +53,29 @@ std::vector<double> generateHalvingStepSizes(double initialStep, int numSteps) {
     return stepSizes;
 }
 
-std::vector<double> computeAbsoluteErrors(const ScalarFunction &f, double evaluationPoint, double exactDerivative,
-                                           const std::vector<double> &stepSizes,
-                                           const std::function<double(const ScalarFunction &, double, double)> &diffMethod) {
+std::vector<double> computeAbsoluteErrors(
+    const ScalarFunction &f, double evaluationPoint, double exactDerivative,
+    const std::vector<double> &stepSizes,
+    const std::function<double(const ScalarFunction &, double, double)>
+        &diffMethod) {
     std::vector<double> errors(stepSizes.size());
     for (std::size_t i = 0; i < stepSizes.size(); ++i) {
-        errors[i] = std::fabs(diffMethod(f, evaluationPoint, stepSizes[i]) - exactDerivative);
+        errors[i] = std::fabs(diffMethod(f, evaluationPoint, stepSizes[i]) -
+                              exactDerivative);
     }
     return errors;
 }
 
-ConvergenceResults runConvergenceStudy(const ScalarFunction &f, double evaluationPoint, double exactDerivative,
-                                        double initialStep, int numSteps) {
+ConvergenceResults runConvergenceStudy(const ScalarFunction &f,
+                                       double evaluationPoint,
+                                       double exactDerivative,
+                                       double initialStep, int numSteps) {
     ConvergenceResults results;
     results.stepSizes = generateHalvingStepSizes(initialStep, numSteps);
-    results.forwardErrors = computeAbsoluteErrors(f, evaluationPoint, exactDerivative, results.stepSizes, forwardDiff);
-    results.centralErrors = computeAbsoluteErrors(f, evaluationPoint, exactDerivative, results.stepSizes, centralDiff);
+    results.forwardErrors = computeAbsoluteErrors(
+        f, evaluationPoint, exactDerivative, results.stepSizes, forwardDiff);
+    results.centralErrors = computeAbsoluteErrors(
+        f, evaluationPoint, exactDerivative, results.stepSizes, centralDiff);
     return results;
 }
 
@@ -83,10 +92,12 @@ void printOrderColumn(const std::vector<double> &errors, std::size_t i) {
 }
 
 void printConvergenceTable(const ConvergenceResults &results) {
-    std::printf("%-12s %-14s %-10s %-14s %-10s\n", "dx", "err_forward", "p_forward", "err_central", "p_central");
+    std::printf("%-12s %-14s %-10s %-14s %-10s\n", "dx", "err_forward",
+                "p_forward", "err_central", "p_central");
 
     for (std::size_t i = 0; i < results.stepSizes.size(); ++i) {
-        std::printf("%-12.6e %-14.6e", results.stepSizes[i], results.forwardErrors[i]);
+        std::printf("%-12.6e %-14.6e", results.stepSizes[i],
+                    results.forwardErrors[i]);
         printOrderColumn(results.forwardErrors, i);
         std::printf(" %-14.6e", results.centralErrors[i]);
         printOrderColumn(results.centralErrors, i);
@@ -94,13 +105,16 @@ void printConvergenceTable(const ConvergenceResults &results) {
     }
 }
 
-void writeDataset(H5::H5File &file, const std::string &name, const std::vector<double> &data,
-                   const H5::DataSpace &dataspace) {
-    H5::DataSet dataset = file.createDataSet(name, H5::PredType::NATIVE_DOUBLE, dataspace);
+void writeDataset(H5::H5File &file, const std::string &name,
+                  const std::vector<double> &data,
+                  const H5::DataSpace &dataspace) {
+    H5::DataSet dataset =
+        file.createDataSet(name, H5::PredType::NATIVE_DOUBLE, dataspace);
     dataset.write(data.data(), H5::PredType::NATIVE_DOUBLE);
 }
 
-void exportResultsToHDF5(const std::string &outFile, const ConvergenceResults &results) {
+void exportResultsToHDF5(const std::string &outFile,
+                         const ConvergenceResults &results) {
     H5::H5File file(outFile, H5F_ACC_TRUNC);
     hsize_t dims[1] = {static_cast<hsize_t>(results.stepSizes.size())};
     H5::DataSpace dataspace(1, dims);
@@ -113,7 +127,8 @@ void exportResultsToHDF5(const std::string &outFile, const ConvergenceResults &r
 void printExportSummary(const std::string &outFile) {
     std::cout << "\nResults exported to " << outFile << "\n";
     std::cout << "p_forward should converge to ~1.0 and p_central to ~2.0\n";
-    std::cout << "as dx decreases (until round-off error starts to dominate).\n";
+    std::cout
+        << "as dx decreases (until round-off error starts to dominate).\n";
 }
 
 int main() {
@@ -124,7 +139,8 @@ int main() {
     const double dx0 = 0.1;
     const std::string outFile = "results.h5";
 
-    const ConvergenceResults results = runConvergenceStudy(f, evaluationPoint, exactDerivative, dx0, numSteps);
+    const ConvergenceResults results =
+        runConvergenceStudy(f, evaluationPoint, exactDerivative, dx0, numSteps);
 
     printConvergenceTable(results);
     exportResultsToHDF5(outFile, results);

@@ -27,6 +27,7 @@ Rotation never changes a vector's length, so |v| is preserved exactly
 */
 #pragma once
 
+#include <cstddef> // std::size_t: sample count for the trajectory vectors
 #include <vector>
 
 #include "vector3.hpp"
@@ -49,54 +50,71 @@ struct EMFields {
 
 struct Trajectory {
     std::vector<double> time;
-    std::vector<Vector3> position;    // vector<Vector3> is a vector of 3D vectors, 
-    std::vector<Vector3> velocity;    // representing the position of the particle at each time step
+    // vector<Vector3> is a vector of 3D vectors, representing the
+    // position (or velocity) of the particle at each time step
+    std::vector<Vector3> position;
+    std::vector<Vector3> velocity;
 };
 
-inline Vector3 halfPositionDrift(const Vector3 &position, const Vector3 &velocity, double dt) {
+// Advances position by half a step at constant velocity: r + v*dt/2.
+inline Vector3 halfPositionDrift(const Vector3 &position,
+                                 const Vector3 &velocity, double dt) {
     return position + (0.5 * dt) * velocity;
 }
 
-inline Vector3 halfElectricKick(const Vector3 &velocity, const Species &species, const Vector3 &E,
-                                double dt) {
-    return velocity + (species.charge * dt / (2.0 * species.mass)) * E;
+// Accelerates velocity by half a step in E: v + (q*dt/2m)*E.
+inline Vector3 halfElectricKick(const Vector3 &velocity, const Species &species,
+                                const Vector3 &E, double dt) {
+    return velocity + (species.charge * (0.5 * dt) / species.mass) * E;
 }
 
-inline Vector3 magneticRotation(const Vector3 &velocity, const Species &species, const Vector3 &B,
-                                double dt) {
-    const Vector3 t = (species.charge * dt / (2.0 * species.mass)) * B;
-    const Vector3 vPrime = velocity + cross(velocity, t);
+// Rotates v^- around B into v^+ (steps 3-6 above); preserves |v|.
+inline Vector3 magneticRotation(const Vector3 &vMinus, const Species &species,
+                                const Vector3 &B, double dt) {
+    const Vector3 t = (species.charge * (0.5 * dt) / species.mass) * B;
+    const Vector3 vPrime = vMinus + cross(vMinus, t);
     const Vector3 s = (2.0 / (1.0 + dot(t, t))) * t;
-    return velocity + cross(vPrime, s);
+    return vMinus + cross(vPrime, s);
 }
 
-inline Particle borisStep(const Particle &state, const EMFields &fields, double dt) {
+// Advances one particle by one full Boris step (steps 1-8 above).
+inline Particle borisStep(const Particle &state, const EMFields &fields,
+                          double dt) {
     const Vector3 xHalf = halfPositionDrift(state.position, state.velocity, dt);
-    const Vector3 vMinus = halfElectricKick(state.velocity, state.species, fields.E, dt);
+    const Vector3 vMinus =
+        halfElectricKick(state.velocity, state.species, fields.E, dt);
     const Vector3 vPlus = magneticRotation(vMinus, state.species, fields.B, dt);
     const Vector3 vNew = halfElectricKick(vPlus, state.species, fields.E, dt);
     const Vector3 xNew = halfPositionDrift(xHalf, vNew, dt);
     return {xNew, vNew, state.species};
 }
 
-inline Trajectory simulateBorisPusher(const Particle &initialState, const EMFields &fields, double dt,
-                                      int numSteps) {
-    Trajectory trajectory;
-    trajectory.time.reserve(numSteps + 1);      // We want to reserve space for the number of steps in our
-    trajectory.position.reserve(numSteps + 1);  // simulation and the initial state, hence numSteps + 1.
-    trajectory.velocity.reserve(numSteps + 1);
-
-    Particle state = initialState;
-    trajectory.time.push_back(0.0);
+// Appends the time, position and velocity of one step to the trajectory.
+inline void recordSample(Trajectory &trajectory, double time,
+                         const Particle &state) {
+    trajectory.time.push_back(time);
     trajectory.position.push_back(state.position);
     trajectory.velocity.push_back(state.velocity);
+}
 
+// Integrates numSteps Boris steps from initialState, recording every
+// step plus the initial state.
+inline Trajectory simulateBorisPusher(const Particle &initialState,
+                                      const EMFields &fields, double dt,
+                                      int numSteps) {
+    Trajectory trajectory;
+    // We want to reserve space for the number of steps in our
+    // simulation and the initial state, hence numSteps + 1.
+    const std::size_t samples = static_cast<std::size_t>(numSteps) + 1;
+    trajectory.time.reserve(samples);
+    trajectory.position.reserve(samples);
+    trajectory.velocity.reserve(samples);
+
+    Particle state = initialState;
+    recordSample(trajectory, 0.0, state);
     for (int step = 1; step <= numSteps; ++step) {
         state = borisStep(state, fields, dt);
-        trajectory.time.push_back(step * dt);
-        trajectory.position.push_back(state.position);
-        trajectory.velocity.push_back(state.velocity);
+        recordSample(trajectory, step * dt, state);
     }
-
     return trajectory;
 }

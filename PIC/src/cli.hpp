@@ -5,7 +5,8 @@ Command-line parsing for the generic driver.
 */
 #pragma once
 
-#include <stdexcept>
+#include <filesystem>
+#include <stdexcept> // std::runtime_error for invalid CLI arguments
 #include <string>
 
 struct RunConfig {
@@ -14,41 +15,70 @@ struct RunConfig {
     std::string groupName = "/trajectory";
 };
 
-// A positional is the output file, unless it lacks the .h5 suffix,
-// in which case it is the group name.
-inline void applyPositional(RunConfig &config, const std::string &arg) {
-    if (arg.size() >= 3 && arg.substr(arg.size() - 3) == ".h5") {
+// True if arg ends in ".h5".
+inline bool hasH5Suffix(const std::string &arg) {
+    return std::filesystem::path(arg).extension() == ".h5";
+}
+
+// Positionals are the plain arguments after the input file (not options like
+// --group): at most [output.h5] and [group].
+constexpr int kMaxPositionals = 2;
+
+// Throws runtime_error if the number of positionals exceeds the limit.
+inline void checkPositionalLimit(const std::string &arg, int count) {
+    if (count > kMaxPositionals) {
+        throw std::runtime_error("error: unexpected argument '" + arg + "'");
+    }
+}
+
+// Stores one positional: output path if it ends in .h5, group otherwise.
+inline void applyPositional(RunConfig &config, const std::string &arg,
+                            int &positionalCount) {
+    ++positionalCount;
+    checkPositionalLimit(arg, positionalCount);
+    if (hasH5Suffix(arg)) {
         config.outputPath = arg;
     } else {
         config.groupName = arg;
     }
 }
 
+// Reads the value following "--group" at argv[i]. Returns 1, the extra
+// argv entry consumed.
+inline int applyGroupOption(RunConfig &config, int i, int argc, char *argv[]) {
+    if (i + 1 >= argc) {
+        throw std::runtime_error("error: --group needs a value");
+    }
+    config.groupName = argv[i + 1];
+    return 1;
+}
+
 // Consumes one option or positional at argv[i]. Returns extra argv entries
 // consumed (1 for "--group <value>", 0 otherwise).
-inline int applyArg(RunConfig &config, int i, int argc, char *argv[]) {
+inline int applyArg(RunConfig &config, int i, int argc, char *argv[],
+                    int &positionalCount) {
     const std::string arg = argv[i];
     if (arg == "--group") {
-        if (i + 1 >= argc) {
-            throw std::runtime_error("error: --group needs a value");
-        }
-        config.groupName = argv[i + 1];
-        return 1;
+        return applyGroupOption(config, i, argc, argv);
     }
     if (arg.rfind("--", 0) == 0) {
         throw std::runtime_error("error: unknown option '" + arg + "'");
     }
-    if (config.outputPath == "results.h5" && (i == 2)) {
-        // First positional after input is the output file... unless the
-        // caller passed only a group; disambiguate by extension.
-        applyPositional(config, arg);
-        return 0;
+    applyPositional(config, arg, positionalCount);
+    return 0;
+}
+
+// Throws runtime_error if the group name is empty (from "" on the CLI).
+inline void checkGroupName(const std::string &groupName) {
+    if (groupName.empty()) {
+        throw std::runtime_error("error: group name cannot be empty");
     }
-    if (config.groupName == "/trajectory") {
-        config.groupName = arg;
-        return 0;
-    }
-    throw std::runtime_error("error: unexpected argument '" + arg + "'");
+}
+
+// Builds the usage text shown when the input file is missing.
+inline std::string usageMessage(const std::string &program) {
+    return "Usage: " + program + " <input.txt> [output.h5] [group]\n" +
+           "       " + program + " <input.txt> [output.h5] --group <group>";
 }
 
 // Parses argv into a RunConfig. Throws runtime_error carrying the complete
@@ -56,15 +86,14 @@ inline int applyArg(RunConfig &config, int i, int argc, char *argv[]) {
 // lines for bad options. Defaults: output "results.h5", group "/trajectory".
 inline RunConfig parseArgs(int argc, char *argv[]) {
     if (argc < 2) {
-        throw std::runtime_error(std::string("Usage: ") + argv[0] +
-                                 " <input.txt> [output.h5] [group]\n       " + argv[0] +
-                                 " <input.txt> [output.h5] --group <group>");
+        throw std::runtime_error(usageMessage(argv[0]));
     }
-    RunConfig config{argv[1], "results.h5", "/trajectory"};
+    RunConfig config;
+    config.inputPath = argv[1];
+    int positionalCount = 0;
     for (int i = 2; i < argc; ++i) {
-        i += applyArg(config, i, argc, argv);
+        i += applyArg(config, i, argc, argv, positionalCount);
     }
-    // Edge case: "./prog input.txt results.h5" leaves group default -- correct.
-    // "./prog input.txt /cyclotron" is detected above by missing .h5 suffix.
+    checkGroupName(config.groupName);
     return config;
 }

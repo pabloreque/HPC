@@ -32,7 +32,8 @@ struct Scenario {
     int numSteps;
 };
 
-inline double cyclotronAngularFrequency(double charge, double mass, const Vector3 &B) {
+inline double cyclotronAngularFrequency(double charge, double mass,
+                                        const Vector3 &B) {
     return charge * norm(B) / mass;
 }
 
@@ -52,10 +53,10 @@ inline Scenario cyclotronScenario() {
     const int stepsPerPeriod = 1000;
     const int numPeriods = 3;
     return Scenario{"cyclotron",
-                     Particle{Vector3{0.0, 0.0, 0.0}, Vector3{kV0, 0.0, 0.0}, Species{kCharge, kMass}},
-                     EMFields{Vector3{0.0, 0.0, 0.0}, B},
-                     period / stepsPerPeriod,
-                     stepsPerPeriod * numPeriods};
+                    Particle{Vector3{0.0, 0.0, 0.0}, Vector3{kV0, 0.0, 0.0},
+                             Species{kCharge, kMass}},
+                    EMFields{Vector3{0.0, 0.0, 0.0}, B},
+                    period / stepsPerPeriod, stepsPerPeriod * numPeriods};
 }
 
 // Deliberately coarse time resolution (8 steps per orbit) to demonstrate
@@ -67,10 +68,10 @@ inline Scenario cyclotronScenarioCoarseTimestep() {
     const int stepsPerPeriod = 8;
     const int numPeriods = 5;
     return Scenario{"cyclotron_coarse",
-                     Particle{Vector3{0.0, 0.0, 0.0}, Vector3{kV0, 0.0, 0.0}, Species{kCharge, kMass}},
-                     EMFields{Vector3{0.0, 0.0, 0.0}, B},
-                     period / stepsPerPeriod,
-                     stepsPerPeriod * numPeriods};
+                    Particle{Vector3{0.0, 0.0, 0.0}, Vector3{kV0, 0.0, 0.0},
+                             Species{kCharge, kMass}},
+                    EMFields{Vector3{0.0, 0.0, 0.0}, B},
+                    period / stepsPerPeriod, stepsPerPeriod * numPeriods};
 }
 
 // Uniform E perpendicular to B on top of the same cyclotron setup: the
@@ -82,19 +83,21 @@ inline Scenario exbDriftScenario() {
     const int stepsPerPeriod = 200;
     const int numPeriods = 10;
     return Scenario{"exb_drift",
-                     Particle{Vector3{0.0, 0.0, 0.0}, Vector3{kV0, 0.0, 0.0}, Species{kCharge, kMass}},
-                     EMFields{E, B},
-                     period / stepsPerPeriod,
-                     stepsPerPeriod * numPeriods};
+                    Particle{Vector3{0.0, 0.0, 0.0}, Vector3{kV0, 0.0, 0.0},
+                             Species{kCharge, kMass}},
+                    EMFields{E, B}, period / stepsPerPeriod,
+                    stepsPerPeriod * numPeriods};
 }
 
 // Closed-form solution for the cyclotron scenario's initial conditions
 // (x0 = 0, v0 = (v0, 0, 0), B = (0, 0, B0)): a circle of radius v0/omega_c
 // centered at the guiding center (0, -v0/omega_c, 0).
-inline Vector3 analyticCyclotronPosition(double t, double charge, double mass, double v0, const Vector3 &B) {
+inline Vector3 analyticCyclotronPosition(double t, double charge, double mass,
+                                         double v0, const Vector3 &B) {
     const double omega = cyclotronAngularFrequency(charge, mass, B);
     const double r = v0 / omega;
-    return Vector3{r * std::sin(omega * t), r * (std::cos(omega * t) - 1.0), 0.0};
+    return Vector3{r * std::sin(omega * t), r * (std::cos(omega * t) - 1.0),
+                   0.0};
 }
 
 // Guiding-center E x B drift velocity, independent of charge and mass.
