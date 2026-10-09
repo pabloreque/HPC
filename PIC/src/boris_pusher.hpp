@@ -1,12 +1,14 @@
 /*
-Pablo Requeijo, September 24 2026.
-Session 2, HPC coursework: Boris pusher.
-Boris pusher step and trajectory simulation (generic, uniform fields).
+Pablo Requeijo, September 24 2026 (Session 2); October 1 2026 (Session 3).
+HPC coursework: Boris pusher.
+Boris pusher step and trajectory simulation.
 
 Time-centered integration of dv/dt = (q/m)(E + v x B), dx/dt = v,
 one step (r^n, v^n) -> (r^(n+1), v^(n+1)):
 
-1. Half position drift: r^(n+1/2) = r^n + v^n*dt/2.
+1. Half position drift: r^(n+1/2) = r^n + v^n*dt/2. The fields E, B used
+   below are sampled at r^(n+1/2): a constant for uniform fields, an
+   interpolation from the Yee mesh in the hybrid PIC loop.
 
 2. Half electric kick: v^- = v^n + (q*dt/2m)*E.
 
@@ -27,9 +29,11 @@ Rotation never changes a vector's length, so |v| is preserved exactly
 */
 #pragma once
 
-#include <cstddef> // std::size_t: sample count for the trajectory vectors
+#include <cstddef>  // std::size_t: sample count for the trajectory vectors
+#include <optional> // std::optional: periodic box length, or none (unbounded)
 #include <vector>
 
+#include "grid.hpp"
 #include "vector3.hpp"
 
 struct Species {
@@ -41,6 +45,9 @@ struct Particle {
     Vector3 position;
     Vector3 velocity;
     Species species;
+    // Macroparticle statistical weight w_p: how much it contributes to the
+    // density deposited on the grid.
+    double weight = 1.0;
 };
 
 struct EMFields {
@@ -77,16 +84,39 @@ inline Vector3 magneticRotation(const Vector3 &vMinus, const Species &species,
     return vMinus + cross(vPrime, s);
 }
 
-// Advances one particle by one full Boris step (steps 1-8 above).
-inline Particle borisStep(const Particle &state, const EMFields &fields,
-                          double dt) {
+// Advances one particle by one full Boris step (steps 1-8 above), with
+// the fields given by sampleFields(r^(n+1/2)). FieldSampler is a template
+// so any callable Vector3 -> EMFields works (uniform fields, grid
+// interpolation), resolved at compile time.
+template <class FieldSampler>
+inline Particle borisStep(const Particle &state,
+                          const FieldSampler &sampleFields, double dt) {
     const Vector3 xHalf = halfPositionDrift(state.position, state.velocity, dt);
+    const EMFields fields = sampleFields(xHalf);
     const Vector3 vMinus =
         halfElectricKick(state.velocity, state.species, fields.E, dt);
     const Vector3 vPlus = magneticRotation(vMinus, state.species, fields.B, dt);
     const Vector3 vNew = halfElectricKick(vPlus, state.species, fields.E, dt);
     const Vector3 xNew = halfPositionDrift(xHalf, vNew, dt);
-    return {xNew, vNew, state.species};
+    return {xNew, vNew, state.species, state.weight};
+}
+
+// Advances one particle by one full Boris step in uniform fields, by
+// wrapping them in a sampler that ignores the position and delegating to
+// the generic borisStep above.
+inline Particle borisStep(const Particle &state, const EMFields &fields,
+                          double dt) {
+    const auto uniformSampler = [&fields](const Vector3 &) { return fields; };
+    return borisStep(state, uniformSampler, dt);
+}
+
+// Wraps x into [0, periodicLength) if a periodic box is set; no-op
+// otherwise (unbounded motion).
+inline void applyPeriodicX(Particle &state,
+                           const std::optional<double> &periodicLength) {
+    if (periodicLength) {
+        state.position.x = wrapPosition(state.position.x, *periodicLength);
+    }
 }
 
 // Appends the time, position and velocity of one step to the trajectory.
@@ -98,10 +128,12 @@ inline void recordSample(Trajectory &trajectory, double time,
 }
 
 // Integrates numSteps Boris steps from initialState, recording every
-// step plus the initial state.
-inline Trajectory simulateBorisPusher(const Particle &initialState,
-                                      const EMFields &fields, double dt,
-                                      int numSteps) {
+// step plus the initial state. With periodicLength set, x is wrapped into
+// [0, periodicLength) after every step.
+inline Trajectory
+simulateBorisPusher(const Particle &initialState, const EMFields &fields,
+                    double dt, int numSteps,
+                    const std::optional<double> &periodicLength = {}) {
     Trajectory trajectory;
     // We want to reserve space for the number of steps in our
     // simulation and the initial state, hence numSteps + 1.
@@ -114,6 +146,7 @@ inline Trajectory simulateBorisPusher(const Particle &initialState,
     recordSample(trajectory, 0.0, state);
     for (int step = 1; step <= numSteps; ++step) {
         state = borisStep(state, fields, dt);
+        applyPeriodicX(state, periodicLength);
         recordSample(trajectory, step * dt, state);
     }
     return trajectory;
