@@ -22,7 +22,7 @@ Correctness is checked three ways (speed conservation, cyclotron circle, E×B dr
 
 ## Session 3: hybrid PIC and periodic boundaries
 
-> **Work in progress: not yet stable.** Session 3 is still being validated and may change. The last stable state is the `session-2` tag; the Session 3 commits are the ones after it, up to the `session-3-unstable` tag.
+> **Work in progress: not yet stable.** Session 3 is still being validated and may change. The last stable state is the `session-2` tag; the Session 3 commits are all the ones after it on `main`, and the `session-3-unstable` tag marks the first published Session 3 state.
 
 **Dimensionality: 1D3V.** The hybrid model is one-dimensional in space but keeps all three components of velocities and fields:
 
