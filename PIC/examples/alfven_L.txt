@@ -1,0 +1,15 @@
+# Hybrid PIC input (key=value, '#' = comment), hybrid mode (nx= present).
+# Cold protons in B0 = x, one circularly polarized L-mode (ion cyclotron)
+# eigenmode with k d_i = 1: omega/Omega_ci = (sqrt(5) - 1)/2 = 0.618
+# (propagates towards +x). About 3 wave periods.
+nx=64
+length=6.283185307179586
+dt=0.002
+steps=15000
+output_every=30
+iterations=2
+B=1 0 0
+ppc=4
+wave_mode=1
+wave_amplitude=0.01
+wave_branch=L

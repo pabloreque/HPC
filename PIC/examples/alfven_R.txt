@@ -1,0 +1,15 @@
+# Hybrid PIC input (key=value, '#' = comment), hybrid mode (nx= present).
+# Cold protons in B0 = x, one circularly polarized R-mode (whistler)
+# eigenmode with k d_i = 1: omega/Omega_ci = -(1 + sqrt(5))/2 = -1.618
+# (propagates towards -x). About 5 wave periods.
+nx=64
+length=6.283185307179586
+dt=0.002
+steps=10000
+output_every=20
+iterations=2
+B=1 0 0
+ppc=4
+wave_mode=1
+wave_amplitude=0.01
+wave_branch=R

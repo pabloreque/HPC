@@ -1,0 +1,15 @@
+# Hybrid PIC input (key=value, '#' = comment), hybrid mode (nx= present).
+# Warm uniform plasma, no imposed wave: the particle noise excites every
+# normal mode of the box, so the space-time Fourier transform of By, Bz
+# reveals the R and L dispersion branches (beta_i = 2 vth^2 = 0.18).
+nx=128
+length=64
+dt=0.025
+steps=4000
+output_every=2
+iterations=2
+B=1 0 0
+Te=0.1
+ppc=100
+vth=0.3
+seed=7

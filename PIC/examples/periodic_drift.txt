@@ -1,0 +1,12 @@
+# Boris pusher input (key=value, '#' = comment), test-particle mode.
+# E x B drift along +x (v_d = E x B / B^2 = (0.1, 0, 0)) in a periodic box:
+# the particle leaves through x = length and re-enters at x = 0.
+E=0 0.1 0
+B=0 0 1
+length=4
+dt=0.031415926535898
+steps=4000
+q=1.0
+m=1.0
+x=2 0 0
+v=1 0 0
