@@ -4,7 +4,9 @@ Session 3, HPC coursework: hybrid PIC.
 Catch2 validation of the full hybrid PIC step (src/hybrid_step.hpp)
 against the analytic dispersion relation of parallel circularly
 polarized waves (ideal and hyper-resistive), plus the convergence order
-of the ICN scheme.
+and the stability of the ICN scheme: a grid-scale perturbation must decay
+below the timestep limit and grow above it (or at any dt with a single
+correction), at the analytic ICN rate.
 */
 
 #include <catch2/catch_approx.hpp>
@@ -24,6 +26,12 @@ namespace {
 // Wavenumber of a grid-scale wave: 4 cells per wavelength on 64 cells
 // spanning 2 pi.
 constexpr double kGridScaleK = 16.0;
+// Shortest wave of the same grid, 2 cells per wavelength: the fastest
+// whistler, which sets the timestep limit.
+constexpr double kNyquistK = 32.0;
+// Steps of the Nyquist stability runs: enough to separate growth from
+// decay by orders of magnitude, few enough to stay linear (no overflow).
+constexpr int kStabilitySteps = 10;
 
 // Fourier amplitude of b = By + i*Bz at wavenumber k (dual nodes).
 std::complex<double> modeAmplitude(const VecField &B, const Grid1D &grid,
@@ -148,21 +156,6 @@ void addCircularPerturbation(VecField &B, const Grid1D &grid, double k,
     }
 }
 
-// Cold uniform plasma in B0 = x whose only perturbation is a grid-scale
-// magnetic wave, 4 cells per wavelength (k = kGridScaleK on 64 cells).
-HybridScenario gridScaleScenario(double nu) {
-    ElectronModel electrons;
-    electrons.hyperResistivity = nu;
-    HybridScenario scenario =
-        waveScenario(WaveBranch::R, 64, 0.002, 2, 0.0, electrons);
-    HybridState &state = scenario.state;
-    VecField B = state.B;
-    addCircularPerturbation(B, state.grid, kGridScaleK, 1e-3);
-    state = initializeState(state.grid, std::move(B),
-                            std::move(state.particles), electrons);
-    return scenario;
-}
-
 // Ratio |b_k(t)| / |b_k(0)| of the mode k after running for 'duration'.
 double amplitudeRatioAfter(HybridScenario &scenario, double k,
                            double duration) {
@@ -174,6 +167,56 @@ double amplitudeRatioAfter(HybridScenario &scenario, double k,
         hybridStep(state, scenario.params);
     }
     return std::abs(modeAmplitude(state.B, state.grid, k)) / std::abs(initial);
+}
+
+// Cold uniform plasma in B0 = x on 64 cells whose only perturbation is a
+// small magnetic wave of wavenumber k, advanced with 'params'.
+HybridScenario perturbedScenario(const HybridParameters &params, double k) {
+    HybridScenario scenario = waveScenario(
+        WaveBranch::R, 64, params.dt, params.iterations, 0.0, params.electrons);
+    HybridState &state = scenario.state;
+    VecField B = state.B;
+    addCircularPerturbation(B, state.grid, k, 1e-3);
+    state = initializeState(state.grid, std::move(B),
+                            std::move(state.particles), params.electrons);
+    return scenario;
+}
+
+// Grid-scale perturbation, 4 cells per wavelength, with hyper-resistivity
+// 'nu' and the default dt = 0.002.
+HybridScenario gridScaleScenario(double nu) {
+    ElectronModel electrons;
+    electrons.hyperResistivity = nu;
+    return perturbedScenario(HybridParameters{0.002, 2, electrons},
+                             kGridScaleK);
+}
+
+// Measured ratio |b(t)| / |b(0)| of a Nyquist-scale perturbation after
+// kStabilitySteps steps of dt = fraction * timestepLimit, ideal electrons.
+double nyquistAmplification(double fraction, int iterations) {
+    const Grid1D grid = makeGrid(64, 2.0 * kPi);
+    const double dt = fraction * timestepLimit(grid, kB0, 1.0, 0.0);
+    HybridScenario scenario =
+        perturbedScenario(HybridParameters{dt, iterations, {}}, kNyquistK);
+    return amplitudeRatioAfter(scenario, kNyquistK, kStabilitySteps * dt);
+}
+
+// Analytic ICN amplification |g| per step of an oscillation at y = omega dt:
+// |g|^2 = 1 + y^4/4 with 1 correction, 1 - y^4/4 + y^6/16 with 2.
+double icnAmplification(double y, int iterations) {
+    const double y4 = std::pow(y, 4);
+    const double gainSquared = iterations == 1
+                                   ? 1.0 + y4 / 4.0
+                                   : 1.0 - y4 / 4.0 + std::pow(y, 6) / 16.0;
+    return std::sqrt(gainSquared);
+}
+
+// Analytic amplification after kStabilitySteps at dt = fraction * limit.
+// With nu = 0 the limit is 2/omega of the Nyquist whistler, so
+// y = omega dt = 2 * fraction.
+double expectedNyquistAmplification(double fraction, int iterations) {
+    return std::pow(icnAmplification(2.0 * fraction, iterations),
+                    kStabilitySteps);
 }
 
 } // namespace
@@ -275,4 +318,30 @@ TEST_CASE("Small hyper-resistivity removes grid-scale whistlers",
     // Same nu as the long-wave test: rate ~nu k^4 ~ 65 wipes it out.
     HybridScenario damped = gridScaleScenario(1e-3);
     REQUIRE(amplitudeRatioAfter(damped, kGridScaleK, 0.1) < 0.05);
+}
+
+TEST_CASE("A grid-scale perturbation decays below the timestep limit and "
+          "grows above it",
+          "[hybrid][stability]") {
+    for (const double fraction : {0.8, 1.2}) {
+        CAPTURE(fraction);
+        const double measured = nyquistAmplification(fraction, 2);
+        REQUIRE((fraction < 1.0 ? measured < 1.0 : measured > 1.0));
+        REQUIRE(measured ==
+                Catch::Approx(expectedNyquistAmplification(fraction, 2))
+                    .epsilon(0.05));
+    }
+}
+
+TEST_CASE("With one ICN correction a grid-scale perturbation grows even "
+          "below the timestep limit",
+          "[hybrid][stability]") {
+    for (const double fraction : {0.5, 0.8}) {
+        CAPTURE(fraction);
+        const double measured = nyquistAmplification(fraction, 1);
+        REQUIRE(measured > 1.0);
+        REQUIRE(measured ==
+                Catch::Approx(expectedNyquistAmplification(fraction, 1))
+                    .epsilon(0.05));
+    }
 }
