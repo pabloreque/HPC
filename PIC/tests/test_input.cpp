@@ -1,7 +1,8 @@
 /*
 Pablo Requeijo, October 1 2026.
-Session 2, HPC coursework: Boris pusher.
-Catch2 tests of the .txt input parser (src/input.hpp).
+Sessions 2-3, HPC coursework: PIC.
+Catch2 tests of the .txt input parser (src/input.hpp), in test-particle
+and hybrid mode.
 
 Each test writes a small input file to the system temp directory and
 checks that parseInputFile either reads it correctly or fails with a
@@ -13,6 +14,7 @@ checks that parseInputFile either reads it correctly or fails with a
 #include <filesystem>
 #include <fstream>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "input.hpp"
@@ -103,4 +105,79 @@ TEST_CASE("Input parser reports missing required keys", "[input]") {
     checkAllFail("pic_input_missing.txt",
                  {{"dt", "", "missing required key 'dt'"},
                   {"B", "", "missing required key 'B'"}});
+}
+
+// A minimal valid hybrid-mode input (one key per line).
+const std::vector<std::string> kHybridLines = {
+    "dt=0.002", "steps=10", "B=1 0 0", "length=6.28", "nx=64", "ppc=4"};
+
+// Joins kHybridLines plus 'extra' lines into one file content.
+std::string hybridInputWith(const std::vector<std::string> &extra) {
+    std::string content;
+    for (const std::string &line : kHybridLines) {
+        content += line + "\n";
+    }
+    for (const std::string &line : extra) {
+        content += line + "\n";
+    }
+    return content;
+}
+
+TEST_CASE("Input parser reads a periodic length in test-particle mode",
+          "[input][periodic]") {
+    const std::string path = writeTempInput(
+        "pic_input_length.txt", inputWith("dt", "dt=0.1\nlength=4"));
+    const Input input = parseInputFile(path);
+    REQUIRE(input.length.has_value());
+    REQUIRE(*input.length == 4.0);
+    REQUIRE_FALSE(input.hybrid.has_value());
+}
+
+TEST_CASE("Input parser reads a hybrid-mode file with defaults",
+          "[input][hybrid]") {
+    const std::string path = writeTempInput(
+        "pic_input_hybrid.txt",
+        hybridInputWith({"Te=0.1", "nu=0.001", "wave_mode=1",
+                         "wave_amplitude=0.01", "wave_branch=L"}));
+    const Input input = parseInputFile(path);
+    REQUIRE(input.hybrid.has_value());
+    const HybridSettings &s = *input.hybrid;
+    REQUIRE(s.nx == 64);
+    REQUIRE(*input.length == 6.28);
+    REQUIRE(s.population.ppc == 4);
+    REQUIRE(s.population.density == 1.0);
+    REQUIRE(s.iterations == 2);
+    REQUIRE(s.electrons.temperature == 0.1);
+    REQUIRE(s.electrons.resistivity == 0.0);
+    REQUIRE(s.electrons.hyperResistivity == 0.001);
+    REQUIRE(s.wave.branch == WaveBranch::L);
+    REQUIRE(input.particles.empty());
+}
+
+TEST_CASE("Input parser rejects inconsistent hybrid-mode files",
+          "[input][hybrid]") {
+    const std::vector<std::pair<std::vector<std::string>, std::string>> cases =
+        {{{"E=0 0 0"}, "E= is not allowed in hybrid mode"},
+         {{"q=1", "m=1", "x=0 0 0", "v=0 0 0"},
+          "explicit particles are not allowed in hybrid mode"},
+         {{"iterations=0"}, "iterations must be >= 1"},
+         {{"nu=-0.1"}, "nu must be >= 0"},
+         {{"wave_branch=X"}, "expected R or L"},
+         {{"wave_amplitude=0.1"}, "wave_amplitude needs wave_mode > 0"},
+         {{"wave_mode=1", "density=2"}, "a wave needs density=1"}};
+    for (const auto &[extra, expected] : cases) {
+        CAPTURE(expected);
+        const std::string path =
+            writeTempInput("pic_input_hybrid_bad.txt", hybridInputWith(extra));
+        CHECK_THROWS_WITH(parseInputFile(path), ContainsSubstring(expected));
+    }
+}
+
+TEST_CASE("Input parser requires nx= for hybrid-only keys", "[input][hybrid]") {
+    checkAllFail("pic_input_hybrid_key.txt",
+                 {{"dt", "dt=0.1\nppc=4", "'ppc' needs nx= (hybrid mode)"}});
+    const std::string path = writeTempInput("pic_input_hybrid_missing.txt",
+                                            "dt=0.1\nsteps=1\nB=1 0 0\nnx=8\n");
+    CHECK_THROWS_WITH(parseInputFile(path),
+                      ContainsSubstring("missing required key 'length'"));
 }
