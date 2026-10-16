@@ -20,6 +20,13 @@ Two scenarios (see `examples/` and `tests/scenarios.hpp`):
 
 Correctness is checked three ways (speed conservation, cyclotron circle, E×B drift) by the Catch2 suite and visualized in the notebook, plus per-particle checks for fixed-seed mixed species.
 
+Since $q = m = |\vec B| = v_0 = 1$ would hide a wrong formula (e.g. $m/qB$ instead of $qB/m$), the gyration is also tested for a proton, an alpha particle ($q = 2$, $m = 4$) and a light negative charge ($q = -1$, $m = 0.05$) on a helical orbit in an oblique field $|\vec B| = 2$:
+- the gyrophase turns at the signed frequency $-q|\vec B|/m$ (within $10^{-5}$): ions turn clockwise seen from the tip of $\vec B$, negative charges anticlockwise;
+- the distance to the analytic guiding center, which moves along $\vec B$ at constant $v_\parallel$, stays at $r_L = m v_\perp/(|q||\vec B|)$;
+- the orbit's angular momentum about that center is $-\mathrm{sign}(q)\,r_L v_\perp$ along $\vec B$, so its current loop always weakens $\vec B$ (diamagnetism).
+
+Each check was confirmed to fail when the pusher's rotation is reversed or the mass is dropped from $q/m$.
+
 ## Session 3: hybrid PIC and periodic boundaries
 
 > **Work in progress: not yet stable.** Session 3 is still being validated and may change. The last stable state is the `session-2` tag; the Session 3 commits are all the ones after it on `main`, and the `session-3-unstable` tag marks the first published Session 3 state.
