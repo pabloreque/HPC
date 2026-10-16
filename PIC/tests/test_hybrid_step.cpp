@@ -189,9 +189,9 @@ TEST_CASE("The R-mode (whistler) eigenmode has the analytic frequency",
     REQUIRE(measured.omega ==
             Catch::Approx(waveFrequency(k, WaveBranch::R)).epsilon(5e-3));
     REQUIRE(measured.amplitudeRatio == Catch::Approx(1.0).epsilon(1e-3));
-    for (const Particle &p : scenario.state.particles) {
-        REQUIRE(p.position.x >= 0.0);
-        REQUIRE(p.position.x < scenario.state.grid.length);
+    for (const Particle1D &p : scenario.state.particles) {
+        REQUIRE(p.position >= 0.0);
+        REQUIRE(p.position < scenario.state.grid.length);
     }
 }
 

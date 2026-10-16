@@ -31,11 +31,11 @@ Correctness is checked three ways (speed conservation, cyclotron circle, E×B dr
 | Grid (`Grid1D`) | 1: $n_x$ nodes along $x$, no $y$/$z$ nodes |
 | $\vec E$, $\vec B$, $\vec j$, $n$, $\vec u$ | depend on $x$ only; each vector keeps its 3 components (3 arrays of $n_x$ values) |
 | Particle velocity | 3 components |
-| Particle position | only $x$ matters |
+| Particle position | 1: a scalar $x$ (`Particle1D`) |
 
 - The plasma is assumed uniform in $y$ and $z$ ($\partial_y = \partial_z = 0$): each plane $x = $ const is an infinite slab with the same values everywhere. Hence only $x$ derivatives appear, $j_x = 0$ and $B_x$ never changes.
 - Velocities must stay 3D: with $\vec B_0 = B_0\hat x$, the $\vec v\times\vec B$ force and the ion gyration live in the $y$–$z$ plane, and so do the transverse waves ($B_y$, $B_z$, $j_y$, $j_z$).
-- Particle positions are still `Vector3` (the Session 2 pusher is reused) and the pusher advances $y$ and $z$, but deposit, gather and periodic wrapping only use $x$: the $y$, $z$ coordinates have no effect.
+- Particle positions are a scalar $x$: $y$ and $z$ would never feed back into the fields, so they are neither stored nor pushed. `Particle` is a template on the position type (`src/boris_pusher.hpp`): the hybrid PIC uses `Particle1D` (position `double`), while the Session 2 test particles keep `Particle3D` (position `Vector3`) to record their full 3D orbits. Both share the same Boris step and periodic wrap.
 - This is exact for waves propagating along $\vec B_0 = B_0\hat x$ (plane wavefronts), which is what this session studies. It cannot describe oblique propagation, 2D/3D structures (reconnection, turbulence) or instabilities growing across $x$.
 
 **Periodic boundaries.** A particle leaving the box $[0, L)$ through $+x$ re-enters through $-x$ (`src/grid.hpp`), and grid indices wrap the same way. In test-particle mode an optional `length=` line turns this on for the Session 2 pusher (`examples/periodic_drift.txt`).

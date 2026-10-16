@@ -126,21 +126,20 @@ inline Vector3 thermalVelocity(std::mt19937 &rng, double vth) {
 }
 
 // Loads ppc protons per cell, evenly spaced, thermal plus wave velocity.
-inline std::vector<Particle>
+inline std::vector<Particle1D>
 loadUniformPlasma(const PopulationSettings &population,
                   const WaveSettings &wave, const Grid1D &grid) {
     std::mt19937 rng(population.seed);
     const Species proton{1.0, 1.0};
     const double weight = population.density / population.ppc;
-    std::vector<Particle> particles;
+    std::vector<Particle1D> particles;
     particles.reserve(static_cast<std::size_t>(grid.nx) * population.ppc);
     for (int cell = 0; cell < grid.nx; ++cell) {
         for (int k = 0; k < population.ppc; ++k) {
             const double x = (cell + (k + 0.5) / population.ppc) * grid.dx;
             const Vector3 v = thermalVelocity(rng, population.vth) +
                               waveVelocity(x, wave, grid);
-            particles.push_back(
-                Particle{Vector3{x, 0.0, 0.0}, v, proton, weight});
+            particles.push_back(Particle1D{x, v, proton, weight});
         }
     }
     return particles;

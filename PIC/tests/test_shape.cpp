@@ -18,8 +18,8 @@ namespace {
 const Grid1D kGrid = makeGrid(16, 4.0);
 
 // A proton at rest at x with the given weight.
-Particle protonAt(double x, double weight) {
-    return Particle{Vector3{x, 0.0, 0.0}, Vector3{}, Species{1.0, 1.0}, weight};
+Particle1D protonAt(double x, double weight) {
+    return Particle1D{x, Vector3{}, Species{1.0, 1.0}, weight};
 }
 
 // Sum of all node values of a field.
@@ -45,7 +45,7 @@ Field linearField(double a, double b, Centering centering) {
 TEST_CASE("A uniform load deposits exactly the requested density",
           "[shape][deposit]") {
     const PopulationSettings population{7, 2.5, 0.0, 1};
-    const std::vector<Particle> particles =
+    const std::vector<Particle1D> particles =
         loadUniformPlasma(population, WaveSettings{}, kGrid);
     const Moments moments = depositMoments(particles, kGrid);
     for (int i = 0; i < kGrid.nx; ++i) {
@@ -56,7 +56,7 @@ TEST_CASE("A uniform load deposits exactly the requested density",
 
 TEST_CASE("Deposition conserves the total charge across the periodic seam",
           "[shape][deposit]") {
-    const std::vector<Particle> particles = {
+    const std::vector<Particle1D> particles = {
         protonAt(0.0, 1.0), protonAt(1e-12, 0.5),
         protonAt(kGrid.length - 0.01, 2.0), protonAt(1.37, 0.25)};
     const Moments moments = depositMoments(particles, kGrid);

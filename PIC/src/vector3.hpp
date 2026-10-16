@@ -1,10 +1,10 @@
 /*
 Pablo Requeijo, September 24 2026.
 Session 2, HPC coursework: Boris pusher.
-Minimal 3D vector type: position, velocity and field values are all
-Vector3, and the pusher is expressed purely in terms of the operators
-below. Some (-, norm) are not needed by the pusher but are kept for
-convenience.
+Minimal 3D vector type: velocity and field values are always Vector3,
+as are test-particle positions (the hybrid PIC uses a scalar x), and the
+pusher is expressed purely in terms of the operators below. Some (-, norm) are
+not needed by the pusher but are kept for convenience.
 */
 #pragma once
 

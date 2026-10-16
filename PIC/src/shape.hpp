@@ -84,10 +84,9 @@ struct Moments {
 };
 
 // Deposits one particle's charge and charge flux onto primal nodes.
-inline void depositParticle(Moments &moments, const Particle &p,
+inline void depositParticle(Moments &moments, const Particle1D &p,
                             const Grid1D &grid) {
-    const LinearWeights w =
-        linearWeights(p.position.x, Centering::Primal, grid);
+    const LinearWeights w = linearWeights(p.position, Centering::Primal, grid);
     const double charge = p.species.charge * p.weight;
     scatter(moments.density, w, charge);
     scatter(moments.velocity.x, w, charge * p.velocity.x);
@@ -106,20 +105,19 @@ inline void fluxToVelocity(Moments &moments) {
 }
 
 // Computes density and bulk velocity on primal nodes from all particles.
-inline Moments depositMoments(const std::vector<Particle> &particles,
+inline Moments depositMoments(const std::vector<Particle1D> &particles,
                               const Grid1D &grid) {
     Moments moments{makeField(Centering::Primal, grid),
                     makePrimalVecField(grid)};
-    for (const Particle &p : particles) {
+    for (const Particle1D &p : particles) {
         depositParticle(moments, p, grid);
     }
     fluxToVelocity(moments);
     return moments;
 }
 
-// Interpolates the Yee-mesh E and B at a particle position.
-inline EMFields gatherFields(const VecField &E, const VecField &B,
-                             const Vector3 &position, const Grid1D &grid) {
-    return EMFields{interpolate(E, position.x, grid),
-                    interpolate(B, position.x, grid)};
+// Interpolates the Yee-mesh E and B at a particle position x.
+inline EMFields gatherFields(const VecField &E, const VecField &B, double x,
+                             const Grid1D &grid) {
+    return EMFields{interpolate(E, x, grid), interpolate(B, x, grid)};
 }

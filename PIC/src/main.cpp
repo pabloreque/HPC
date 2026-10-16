@@ -112,7 +112,7 @@ double magneticEnergy(const HybridState &state) {
 // Ion kinetic energy sum(w m v^2/2) dx over all macroparticles.
 double kineticEnergy(const HybridState &state) {
     double sum = 0.0;
-    for (const Particle &particle : state.particles) {
+    for (const Particle1D &particle : state.particles) {
         sum += 0.5 * particle.weight * particle.species.mass *
                dot(particle.velocity, particle.velocity);
     }

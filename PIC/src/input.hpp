@@ -35,7 +35,7 @@ struct Input {
     int numSteps = 0;
     Vector3 E;
     Vector3 B;
-    std::vector<Particle> particles;
+    std::vector<Particle3D> particles;
     // Periodic box length along x; unset = unbounded (test-particle mode).
     std::optional<double> length;
     // Hybrid PIC settings, present only in hybrid mode (nx= line).
@@ -124,7 +124,7 @@ struct InputBuilder {
             fail("each particle needs its own q= and m= lines before x=");
         }
         input.particles.push_back(
-            Particle{parseVector3(value, "x"), Vector3{}, pendingSpecies});
+            Particle3D{parseVector3(value, "x"), Vector3{}, pendingSpecies});
         hasPendingCharge = false;
         hasPendingMass = false;
         lastParticleOpen = true;

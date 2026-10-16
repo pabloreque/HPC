@@ -39,7 +39,7 @@ struct HybridState {
     Grid1D grid;
     VecField E;
     VecField B;
-    std::vector<Particle> particles;
+    std::vector<Particle1D> particles;
     Moments moments;
 };
 
@@ -55,7 +55,7 @@ struct HybridParameters {
 // Builds the initial state: deposits the moments and computes E^0 from
 // Ohm's law, so the run starts with self-consistent fields.
 inline HybridState initializeState(const Grid1D &grid, VecField B,
-                                   std::vector<Particle> particles,
+                                   std::vector<Particle1D> particles,
                                    const ElectronModel &electrons) {
     Moments moments = depositMoments(particles, grid);
     VecField E = ohm(moments, B, electrons, grid);
@@ -69,23 +69,23 @@ struct GridFieldSampler {
     const VecField &B;
     const Grid1D &grid;
 
-    // Interpolates E and B at 'position' with the linear shape function.
-    EMFields operator()(const Vector3 &position) const {
-        return gatherFields(E, B, position, grid);
+    // Interpolates E and B at position x with the linear shape function.
+    EMFields operator()(double x) const {
+        return gatherFields(E, B, x, grid);
     }
 };
 
 // Pushes every particle one Boris step in the grid fields E, B and wraps
 // the new positions into the periodic box.
-inline std::vector<Particle> pushAll(const std::vector<Particle> &particles,
-                                     const VecField &E, const VecField &B,
-                                     const Grid1D &grid, double dt) {
+inline std::vector<Particle1D> pushAll(const std::vector<Particle1D> &particles,
+                                       const VecField &E, const VecField &B,
+                                       const Grid1D &grid, double dt) {
     const GridFieldSampler sampler{E, B, grid};
-    std::vector<Particle> pushed;
+    std::vector<Particle1D> pushed;
     pushed.reserve(particles.size());
-    for (const Particle &p : particles) {
-        Particle next = borisStep(p, sampler, dt);
-        next.position.x = wrapPosition(next.position.x, grid.length);
+    for (const Particle1D &p : particles) {
+        Particle1D next = borisStep(p, sampler, dt);
+        wrapPeriodicX(next.position, grid.length);
         pushed.push_back(next);
     }
     return pushed;

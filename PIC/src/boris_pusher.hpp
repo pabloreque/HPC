@@ -24,6 +24,11 @@ one step (r^n, v^n) -> (r^(n+1), v^(n+1)):
 
 8. Closing half drift: r^(n+1) = r^(n+1/2) + v^(n+1)*dt/2.
 
+The velocity is always 3D. The position r is a template parameter: a
+scalar x for the 1D3V hybrid PIC, whose fields depend on x only (y and z
+never feed back into the physics, so they are not computed), and a full
+Vector3 for test particles in uniform fields, whose 3D orbits are saved.
+
 Rotation never changes a vector's length, so |v| is preserved exactly
 (to floating-point precision) for any dt.
 */
@@ -41,14 +46,20 @@ struct Species {
     double mass;
 };
 
-struct Particle {
-    Vector3 position;
+// Position is double (1D) or Vector3 (3D); see the aliases below.
+template <class Position> struct Particle {
+    Position position;
     Vector3 velocity;
     Species species;
     // Macroparticle statistical weight w_p: how much it contributes to the
     // density deposited on the grid.
     double weight = 1.0;
 };
+
+// Self-consistent 1D3V hybrid PIC: only x matters, velocity stays 3D.
+using Particle1D = Particle<double>;
+// Test particles in uniform 3D fields (Session 2 trajectories).
+using Particle3D = Particle<Vector3>;
 
 struct EMFields {
     Vector3 E;
@@ -69,6 +80,11 @@ inline Vector3 halfPositionDrift(const Vector3 &position,
     return position + (0.5 * dt) * velocity;
 }
 
+// Advances a 1D position by half a step: x + vx*dt/2.
+inline double halfPositionDrift(double x, const Vector3 &velocity, double dt) {
+    return x + (0.5 * dt) * velocity.x;
+}
+
 // Accelerates velocity by half a step in E: v + (q*dt/2m)*E.
 inline Vector3 halfElectricKick(const Vector3 &velocity, const Species &species,
                                 const Vector3 &E, double dt) {
@@ -86,42 +102,56 @@ inline Vector3 magneticRotation(const Vector3 &vMinus, const Species &species,
 
 // Advances one particle by one full Boris step (steps 1-8 above), with
 // the fields given by sampleFields(r^(n+1/2)). FieldSampler is a template
-// so any callable Vector3 -> EMFields works (uniform fields, grid
+// so any callable Position -> EMFields works (uniform fields, grid
 // interpolation), resolved at compile time.
-template <class FieldSampler>
-inline Particle borisStep(const Particle &state,
-                          const FieldSampler &sampleFields, double dt) {
-    const Vector3 xHalf = halfPositionDrift(state.position, state.velocity, dt);
+template <class Position, class FieldSampler>
+inline Particle<Position> borisStep(const Particle<Position> &state,
+                                    const FieldSampler &sampleFields,
+                                    double dt) {
+    const Position xHalf =
+        halfPositionDrift(state.position, state.velocity, dt);
     const EMFields fields = sampleFields(xHalf);
     const Vector3 vMinus =
         halfElectricKick(state.velocity, state.species, fields.E, dt);
     const Vector3 vPlus = magneticRotation(vMinus, state.species, fields.B, dt);
     const Vector3 vNew = halfElectricKick(vPlus, state.species, fields.E, dt);
-    const Vector3 xNew = halfPositionDrift(xHalf, vNew, dt);
+    const Position xNew = halfPositionDrift(xHalf, vNew, dt);
     return {xNew, vNew, state.species, state.weight};
 }
 
 // Advances one particle by one full Boris step in uniform fields, by
 // wrapping them in a sampler that ignores the position and delegating to
 // the generic borisStep above.
-inline Particle borisStep(const Particle &state, const EMFields &fields,
-                          double dt) {
-    const auto uniformSampler = [&fields](const Vector3 &) { return fields; };
+template <class Position>
+inline Particle<Position> borisStep(const Particle<Position> &state,
+                                    const EMFields &fields, double dt) {
+    const auto uniformSampler = [&fields](const Position &) { return fields; };
     return borisStep(state, uniformSampler, dt);
+}
+
+// Wraps a 1D position into [0, length).
+inline void wrapPeriodicX(double &x, double length) {
+    x = wrapPosition(x, length);
+}
+
+// Wraps the x component of a 3D position into [0, length).
+inline void wrapPeriodicX(Vector3 &position, double length) {
+    position.x = wrapPosition(position.x, length);
 }
 
 // Wraps x into [0, periodicLength) if a periodic box is set; no-op
 // otherwise (unbounded motion).
-inline void applyPeriodicX(Particle &state,
+template <class Position>
+inline void applyPeriodicX(Particle<Position> &state,
                            const std::optional<double> &periodicLength) {
     if (periodicLength) {
-        state.position.x = wrapPosition(state.position.x, *periodicLength);
+        wrapPeriodicX(state.position, *periodicLength);
     }
 }
 
 // Appends the time, position and velocity of one step to the trajectory.
 inline void recordSample(Trajectory &trajectory, double time,
-                         const Particle &state) {
+                         const Particle3D &state) {
     trajectory.time.push_back(time);
     trajectory.position.push_back(state.position);
     trajectory.velocity.push_back(state.velocity);
@@ -131,7 +161,7 @@ inline void recordSample(Trajectory &trajectory, double time,
 // step plus the initial state. With periodicLength set, x is wrapped into
 // [0, periodicLength) after every step.
 inline Trajectory
-simulateBorisPusher(const Particle &initialState, const EMFields &fields,
+simulateBorisPusher(const Particle3D &initialState, const EMFields &fields,
                     double dt, int numSteps,
                     const std::optional<double> &periodicLength = {}) {
     Trajectory trajectory;
@@ -142,7 +172,7 @@ simulateBorisPusher(const Particle &initialState, const EMFields &fields,
     trajectory.position.reserve(samples);
     trajectory.velocity.reserve(samples);
 
-    Particle state = initialState;
+    Particle3D state = initialState;
     recordSample(trajectory, 0.0, state);
     for (int step = 1; step <= numSteps; ++step) {
         state = borisStep(state, fields, dt);

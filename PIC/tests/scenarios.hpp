@@ -32,7 +32,7 @@ constexpr double kE0 = 0.1;
 
 struct Scenario {
     std::string name;
-    Particle particle;
+    Particle3D particle;
     EMFields fields;
     double dt;
     int numSteps;
@@ -59,8 +59,8 @@ inline Scenario cyclotronScenario() {
     const int stepsPerPeriod = 1000;
     const int numPeriods = 3;
     return Scenario{"cyclotron",
-                    Particle{Vector3{0.0, 0.0, 0.0}, Vector3{kV0, 0.0, 0.0},
-                             Species{kCharge, kMass}},
+                    Particle3D{Vector3{0.0, 0.0, 0.0}, Vector3{kV0, 0.0, 0.0},
+                               Species{kCharge, kMass}},
                     EMFields{Vector3{0.0, 0.0, 0.0}, B},
                     period / stepsPerPeriod, stepsPerPeriod * numPeriods};
 }
@@ -74,8 +74,8 @@ inline Scenario cyclotronScenarioCoarseTimestep() {
     const int stepsPerPeriod = 8;
     const int numPeriods = 5;
     return Scenario{"cyclotron_coarse",
-                    Particle{Vector3{0.0, 0.0, 0.0}, Vector3{kV0, 0.0, 0.0},
-                             Species{kCharge, kMass}},
+                    Particle3D{Vector3{0.0, 0.0, 0.0}, Vector3{kV0, 0.0, 0.0},
+                               Species{kCharge, kMass}},
                     EMFields{Vector3{0.0, 0.0, 0.0}, B},
                     period / stepsPerPeriod, stepsPerPeriod * numPeriods};
 }
@@ -89,8 +89,8 @@ inline Scenario exbDriftScenario() {
     const int stepsPerPeriod = 200;
     const int numPeriods = 10;
     return Scenario{"exb_drift",
-                    Particle{Vector3{0.0, 0.0, 0.0}, Vector3{kV0, 0.0, 0.0},
-                             Species{kCharge, kMass}},
+                    Particle3D{Vector3{0.0, 0.0, 0.0}, Vector3{kV0, 0.0, 0.0},
+                               Species{kCharge, kMass}},
                     EMFields{E, B}, period / stepsPerPeriod,
                     stepsPerPeriod * numPeriods};
 }
@@ -120,8 +120,8 @@ inline Scenario periodicDriftScenario() {
     const int stepsPerPeriod = 200;
     const int numPeriods = 20;
     return Scenario{"periodic_drift",
-                    Particle{Vector3{2.0, 0.0, 0.0}, Vector3{kV0, 0.0, 0.0},
-                             Species{kCharge, kMass}},
+                    Particle3D{Vector3{2.0, 0.0, 0.0}, Vector3{kV0, 0.0, 0.0},
+                               Species{kCharge, kMass}},
                     EMFields{E, B}, period / stepsPerPeriod,
                     stepsPerPeriod * numPeriods};
 }
