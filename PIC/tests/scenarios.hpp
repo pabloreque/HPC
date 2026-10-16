@@ -1,17 +1,23 @@
 /*
-Pablo Requeijo, September 24 2026.
-Session 2, HPC coursework: Boris pusher.
-Test-only fixtures (cyclotron / coarse / E x B drift) + analytic references.
+Pablo Requeijo, September 24 2026 (Session 2); October 1 2026 (Session 3).
+HPC coursework: PIC.
+Test-only fixtures + analytic references.
 
-Test-only fixtures: special-case physical setups (cyclotron, coarse dt,
-E x B drift) plus their closed-form reference solutions.
+Session 2: special-case physical setups (cyclotron, coarse dt, E x B
+drift, periodic drift) plus their closed-form reference solutions.
+Session 3: hybrid PIC setups (circularly polarized eigenmode of a cold
+plasma) whose analytic frequency is waveFrequency() in loader.hpp.
 */
 #pragma once
 
 #include <cmath>
 #include <string>
+#include <utility>
 
 #include "boris_pusher.hpp"
+#include "grid.hpp"
+#include "hybrid_step.hpp"
+#include "loader.hpp"
 #include "vector3.hpp"
 
 constexpr double kPi = 3.14159265358979323846;
@@ -103,4 +109,43 @@ inline Vector3 analyticCyclotronPosition(double t, double charge, double mass,
 // Guiding-center E x B drift velocity, independent of charge and mass.
 inline Vector3 analyticDriftVelocity(const Vector3 &E, const Vector3 &B) {
     return (1.0 / dot(B, B)) * cross(E, B);
+}
+
+// E x B drift along +x (E = 0.1 y, B = z) in a periodic box of length 4,
+// long enough (20 gyro-periods, drift 0.1) for several boundary crossings.
+inline Scenario periodicDriftScenario() {
+    const Vector3 B{0.0, 0.0, kB0};
+    const Vector3 E{0.0, kE0, 0.0};
+    const double period = cyclotronPeriod(kCharge, kMass, B);
+    const int stepsPerPeriod = 200;
+    const int numPeriods = 20;
+    return Scenario{"periodic_drift",
+                    Particle{Vector3{2.0, 0.0, 0.0}, Vector3{kV0, 0.0, 0.0},
+                             Species{kCharge, kMass}},
+                    EMFields{E, B}, period / stepsPerPeriod,
+                    stepsPerPeriod * numPeriods};
+}
+
+constexpr double kPeriodicLength = 4.0;
+
+struct HybridScenario {
+    HybridState state;
+    HybridParameters params;
+    WaveSettings wave;
+};
+
+// Cold protons (4 per cell) in B0 = x with one circularly polarized
+// eigenmode, k d_i = 1 (box of one wavelength, 2*pi), amplitude 'amplitude'.
+inline HybridScenario waveScenario(WaveBranch branch, int nx, double dt,
+                                   int iterations = 2, double amplitude = 0.01,
+                                   const ElectronModel &electrons = {}) {
+    const Grid1D grid = makeGrid(nx, 2.0 * kPi);
+    const WaveSettings wave{1, amplitude, branch};
+    const PopulationSettings population{4, 1.0, 0.0, 1};
+    const Vector3 B0{kB0, 0.0, 0.0};
+    HybridState state =
+        initializeState(grid, initialMagneticField(B0, wave, grid),
+                        loadUniformPlasma(population, wave, grid), electrons);
+    return HybridScenario{std::move(state),
+                          HybridParameters{dt, iterations, electrons}, wave};
 }

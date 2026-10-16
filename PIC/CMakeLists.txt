@@ -23,7 +23,11 @@ FetchContent_Declare(
 FetchContent_MakeAvailable(Catch2)
 
 add_executable(pic_prequeijo_test tests/test_boris_pusher.cpp
-                                  tests/test_input.cpp)
+                                  tests/test_input.cpp
+                                  tests/test_periodic.cpp
+                                  tests/test_shape.cpp
+                                  tests/test_field_solver.cpp
+                                  tests/test_hybrid_step.cpp)
 target_include_directories(pic_prequeijo_test PRIVATE src tests)
 target_link_libraries(pic_prequeijo_test PRIVATE Catch2::Catch2WithMain)
 
