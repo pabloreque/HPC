@@ -82,7 +82,7 @@ Measured convergence of $B$ at fixed $t$ against a $dt/16$ reference (Catch2 `[c
 | 1 | 2.0 | 1 |
 | 2 (default) | 4.00 | 2 |
 
-Stability: the fastest grid mode, $k = 2/dx$, oscillates as a whistler ($\omega \approx k^2 |B_0|/n$) and decays by hyper-resistivity (rate $\nu k^4$). With 2 corrections the ICN amplification factor is $g(z) = 1 - z + z^2/2 - z^3/4$, $z = dt\,(\nu k^4 + i\omega)$, and $|g| \le 1$ holds up to $|z| = 2$ on the imaginary axis but only $|z| \approx 1.77$ in between. The driver therefore warns when $dt > r/|\nu k^4 + i\omega|$, with $r = 2$ for $\nu = 0$ (i.e. $dt < n\,dx^2/(2|B_0|)$) and $r = 1.75$ otherwise (`timestepLimit`, within 20% of the exact boundary). With $dx = 2\pi/64$: for $\nu = 0$ the runs blow up between $dt = 0.004$ and $0.005$, as predicted (limit $0.0048$); with $\nu = 0.005$ the limit drops to $0.0018$ and the `alfven_R` run at $dt = 0.002$ blows up. A naive pure-diffusion estimate $dt < dx^4/(8\nu) = 0.0023$ would miss this.
+Stability: the fastest grid mode, $k = 2/dx$, oscillates as a whistler ($\omega \approx k^2 |B_0|/n$) and decays by hyper-resistivity (rate $\nu k^4$). With 2 corrections the ICN amplification factor is $g(z) = 1 - z + z^2/2 - z^3/4$, $z = dt\,(\nu k^4 + i\omega)$, and $|g| \le 1$ holds up to $|z| = 2$ on the imaginary axis but only $|z| \approx 1.77$ in between. The driver therefore warns when $dt > r/|\nu k^4 + i\omega|$, with $r = 2$ for $\nu = 0$ (i.e. $dt < n\,dx^2/(2|B_0|)$) and $r = 1.75$ otherwise (`timestepLimit`, within 20% of the exact boundary). With $dx = 2\pi/64$: for $\nu = 0$ the runs blow up between $dt = 0.004$ and $0.005$, as predicted (limit $0.0048$); with $\nu = 0.005$ the limit drops to $0.0018$, and the `alfven_R` setup ($dt = 0.002$) blows up once `nu=0.005` is added. A naive pure-diffusion estimate $dt < dx^4/(8\nu) = 0.0023$ would miss this.
 
 Why 2 corrections: each correction pushes and deposits every particle again, so with many particles per cell the cost of a step is roughly proportional to `iterations`, and a third correction costs about 50% more. The extra cost buys little, because the corrections converge to the Crank–Nicolson solution, which already has an $O(dt^2)$ error. Two corrections reach that order, and more do not raise it. For a pure oscillation of the field equation alone ($z = i y$, $y = \omega\,dt$, as for a grid-scale whistler), the corrections change $|g|^2$ as follows:
 
@@ -164,13 +164,13 @@ PIC/
 Input format (`key=value`, `#` = comment), two modes:
 
 - **Test-particle mode**: `dt`, `steps`, `E`, `B`, then per-particle `q=`, `m=`, `x=`, `v=` lines. Uniform static `E`/`B` shared by all particles. Optional `length=` makes $x$ periodic in $[0, L)$.
-- **Hybrid mode**, selected by an `nx=` line. Required: `dt`, `steps`, `B` (initial uniform $\vec B_0$), `length`, `nx`, `ppc` (protons per cell). Optional: `iterations` (ICN corrections, default 2), `output_every` (snapshot period in steps, default 1), `Te`, `eta`, `nu` (hyper-resistivity) (default 0), `density` (default 1), `vth` (thermal speed, default 0), `seed` (default 1), `wave_mode`, `wave_amplitude`, `wave_branch` (`R`/`L`; needs `B=1 0 0`, `density=1`). `E=` and explicit particles are rejected: $\vec E$ comes from Ohm's law.
+- **Hybrid mode**, selected by an `nx=` line. Required: `dt`, `steps`, `B` (initial uniform $\vec B_0$), `length`, `nx`, `ppc` (protons per cell). Optional: `iterations` (ICN corrections, default 2), `output_every` (snapshot period in steps, default 1), `Te`, `eta`, `nu` (electron temperature, resistivity, hyper-resistivity; default 0), `density` (default 1), `vth` (thermal speed, default 0), `seed` (default 1), `wave_mode`, `wave_amplitude`, `wave_branch` (`R`/`L`; needs `B=1 0 0`, `density=1`). `E=` and explicit particles are rejected: $\vec E$ comes from Ohm's law.
 
 ## Build and run (C++)
 
 ```bash
 cd PIC
-mkdir build && cd build
+mkdir -p build && cd build
 cmake ..
 cmake --build .
 ```
@@ -190,7 +190,7 @@ The first configure fetches [Catch2](https://github.com/catchorg/Catch2) v3.5.4 
 
 Test-particle runs print a per-particle summary and write `t`, `x`, `y`, `z`, `vx`, `vy`, `vz` per group (in `particle_N` subgroups for the multi runs). Hybrid runs print the initial/final energies and $\max|\nabla\cdot\vec B|$, and write `t`, `x_primal`, `x_dual` and one `(snapshots × nx)` dataset per grid quantity: `Ex`, `Ey`, `Ez`, `Bx`, `By`, `Bz`, `n`, `ux`, `uy`, `uz`. Each of these has a `centering` attribute (`primal`/`dual`). `thermal_noise` takes a few seconds and writes ~20 MB.
 
-Full usage: `./pic_prequeijo <input.txt> [output.h5] [group]` (defaults `results.h5`, `/trajectory`).
+Full usage: `./pic_prequeijo <input.txt> [output.h5] [group]`, or `--group <group>` (defaults `results.h5`, `/trajectory`).
 
 Run the tests:
 
@@ -223,7 +223,7 @@ Session 2:
 Session 3:
 
 - Periodic drift: $x \in [0, 4)$ always, 17 boundary crossings, folded orbit within $r_L = 0.9$ of the guiding center.
-- R/L eigenmodes: $\omega$ within ~$10^{-3}$ of analytic, energy conserved to ~$10^{-10}$, $\nabla\cdot\vec B = 0$ exactly.
+- R/L eigenmodes: $\omega$ within ~0.1% of analytic, energy conserved to ~$10^{-10}$, $\nabla\cdot\vec B = 0$ exactly.
 - Thermal noise: spectral power on the R and L branches.
 
 ## Next steps
