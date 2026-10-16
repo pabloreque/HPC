@@ -1,7 +1,7 @@
 /*
 Pablo Requeijo, September 24 2026 (Session 2); October 1 2026 (Session 3).
 HPC coursework: PIC.
-Value parsing helpers for the key=value input files.
+Parsing helpers shared by the input files (key=value input, profile file).
 */
 #pragma once
 
@@ -10,6 +10,19 @@ Value parsing helpers for the key=value input files.
 #include <string>
 
 #include "vector3.hpp"
+
+// Throws invalid_argument with 'message' if 'condition' is false.
+inline void require(bool condition, const std::string &message) {
+    if (!condition) {
+        throw std::invalid_argument(message);
+    }
+}
+
+// Formats "path:lineNo: message" for errors tied to one input line.
+inline std::string lineError(const std::string &path, int lineNo,
+                             const std::string &message) {
+    return path + ":" + std::to_string(lineNo) + ": " + message;
+}
 
 // Trims leading and trailing whitespace (spaces, tabs, newlines).
 inline std::string trim(const std::string &text) {
@@ -57,4 +70,9 @@ inline Vector3 parseVector3(const std::string &text, const std::string &key) {
                                     "', expected three numbers");
     }
     return value;
+}
+
+// Drops a trailing '#' comment and the surrounding whitespace.
+inline std::string stripComment(const std::string &line) {
+    return trim(line.substr(0, line.find('#')));
 }

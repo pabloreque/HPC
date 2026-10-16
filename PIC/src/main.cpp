@@ -8,7 +8,7 @@ and runs one of two modes (see input.hpp):
 - test-particle mode: Boris pusher in uniform static E/B, optionally in a
   periodic box; writes one trajectory per particle;
 - hybrid mode: self-consistent 1D hybrid PIC (hybrid_step.hpp); writes
-  field snapshots (t, x_primal, x_dual, Ex..Ez, Bx..Bz, n, ux..uz).
+  field snapshots (t, x_primal, x_dual, Ex..Ez, Bx..Bz, n, ux..uz, Ti).
 Results go to an HDF5 file under the requested group.
 
 Usage:

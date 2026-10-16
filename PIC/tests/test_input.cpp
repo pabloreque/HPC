@@ -14,7 +14,6 @@ checks that parseInputFile either reads it correctly or fails with a
 #include <filesystem>
 #include <fstream>
 #include <string>
-#include <tuple>
 #include <utility>
 #include <vector>
 
@@ -183,69 +182,92 @@ TEST_CASE("Input parser requires nx= for hybrid-only keys", "[input][hybrid]") {
                       ContainsSubstring("missing required key 'length'"));
 }
 
-// Content of a density profile file: a comment, a blank line, then
-// 'values' one per line.
-std::string densityProfileContent(const std::vector<std::string> &values) {
-    std::string content = "# density on the primal nodes\n\n";
-    for (const std::string &value : values) {
-        content += value + "\n";
+// Content of a profile file: a comment, a blank line, the header, then
+// the data rows.
+std::string profileContent(const std::string &header,
+                           const std::vector<std::string> &rows) {
+    std::string content = "# initial moments on the primal nodes\n\n";
+    content += header + "\n";
+    for (const std::string &row : rows) {
+        content += row + "\n";
     }
     return content;
 }
 
-// 'count' density values 1, 1.01, 1.02, ... as text.
-std::vector<std::string> rampValues(int count) {
-    std::vector<std::string> values;
+// 'count' rows "n uy" with n = 1, 1.01, 1.02, ... and uy = 0.5.
+std::vector<std::string> rampRows(int count) {
+    std::vector<std::string> rows;
     for (int i = 0; i < count; ++i) {
-        values.push_back(std::to_string(1.0 + 0.01 * i));
+        rows.push_back(std::to_string(1.0 + 0.01 * i) + " 0.5");
     }
-    return values;
+    return rows;
 }
 
-TEST_CASE("Input parser reads a density profile file next to the input",
-          "[input][hybrid][density]") {
-    writeTempInput("pic_density_ramp.txt",
-                   densityProfileContent(rampValues(64)));
-    const std::string path =
-        writeTempInput("pic_input_density.txt",
-                       hybridInputWith({"density_file=pic_density_ramp.txt"}));
+TEST_CASE("Input parser reads a profile file next to the input",
+          "[input][hybrid][profile]") {
+    writeTempInput("pic_profile_ramp.txt",
+                   profileContent("n uy", rampRows(64)));
+    const std::string path = writeTempInput(
+        "pic_input_profile.txt",
+        hybridInputWith({"profile_file=pic_profile_ramp.txt", "vth=0.2"}));
     const Input input = parseInputFile(path);
-    const std::vector<double> &profile =
-        input.hybrid->population.densityProfile;
-    REQUIRE(profile.size() == 64);
-    REQUIRE(profile.front() == 1.0);
-    REQUIRE(profile.back() == 1.63);
+    const PopulationSettings &population = input.hybrid->population;
+    const NodeProfiles &profiles = population.profiles;
+    REQUIRE(profiles.density.size() == 64);
+    REQUIRE(profiles.density.front() == 1.0);
+    REQUIRE(profiles.density.back() == 1.63);
+    REQUIRE(profiles.bulkVelocity.size() == 64);
+    REQUIRE(profiles.bulkVelocity[3].x == 0.0);
+    REQUIRE(profiles.bulkVelocity[3].y == 0.5);
+    REQUIRE(profiles.bulkVelocity[3].z == 0.0);
+    // No vth column: the uniform vth= applies.
+    REQUIRE(profiles.thermalSpeed.empty());
+    REQUIRE(population.vth == 0.2);
 }
 
-TEST_CASE("Input parser rejects bad density profiles",
-          "[input][hybrid][density]") {
-    std::vector<std::string> withZero = rampValues(64);
-    withZero[5] = "0";
-    std::vector<std::string> withText = rampValues(64);
-    withText[0] = "abc";
-    const std::string fileLine = "density_file=pic_density_bad.txt";
-    const std::vector<std::tuple<std::vector<std::string>,
-                                 std::vector<std::string>, std::string>>
-        cases = {
-            {rampValues(63),
-             {fileLine},
-             "expected nx=64 density values, got 63"},
-            {withZero,
-             {fileLine},
-             "pic_density_bad.txt:8: density must be > 0"},
-            {withText, {fileLine}, "pic_density_bad.txt:3: bad value"},
-            {rampValues(64), {fileLine, "density=2"}, "mutually exclusive"},
-            {rampValues(64),
-             {fileLine, "wave_mode=1"},
-             "a wave needs a uniform density"},
-            {rampValues(64),
-             {"density_file=pic_density_missing.txt"},
-             "cannot open density file"}};
-    for (const auto &[values, extra, expected] : cases) {
-        CAPTURE(expected);
-        writeTempInput("pic_density_bad.txt", densityProfileContent(values));
-        const std::string path =
-            writeTempInput("pic_input_density_bad.txt", hybridInputWith(extra));
-        CHECK_THROWS_WITH(parseInputFile(path), ContainsSubstring(expected));
+struct BadProfileCase {
+    std::string header;
+    std::vector<std::string> rows;
+    std::vector<std::string> extraLines;
+    std::string expectedError;
+};
+
+TEST_CASE("Input parser rejects bad profile files",
+          "[input][hybrid][profile]") {
+    std::vector<std::string> withZero = rampRows(64);
+    withZero[5] = "0 0.5";
+    std::vector<std::string> withText = rampRows(64);
+    withText[0] = "abc 0.5";
+    std::vector<std::string> shortRow = rampRows(64);
+    shortRow[2] = "1.0";
+    const std::string fileLine = "profile_file=pic_profile_bad.txt";
+    const std::vector<BadProfileCase> cases = {
+        {"n uy", rampRows(63), {fileLine}, "expected nx=64 rows, got 63"},
+        {"n uy", withZero, {fileLine}, "pic_profile_bad.txt:9: n must be > 0"},
+        {"n uy", withText, {fileLine}, "pic_profile_bad.txt:4: bad value"},
+        {"n uy", shortRow, {fileLine}, "pic_profile_bad.txt:6: expected 2"},
+        {"vth", {"-0.1"}, {fileLine}, "vth must be >= 0"},
+        {"n T", rampRows(64), {fileLine}, "unknown profile column 'T'"},
+        {"n n", rampRows(64), {fileLine}, "column 'n' appears twice"},
+        {"n uy", rampRows(64), {fileLine, "density=2"}, "density= conflicts"},
+        {"vth",
+         std::vector<std::string>(64, "0.1"),
+         {fileLine, "vth=0.1"},
+         "vth= conflicts"},
+        {"n uy",
+         rampRows(64),
+         {fileLine, "wave_mode=1"},
+         "a wave needs uniform moments"},
+        {"n uy",
+         rampRows(64),
+         {"profile_file=pic_profile_missing.txt"},
+         "cannot open profile file"}};
+    for (const BadProfileCase &c : cases) {
+        CAPTURE(c.expectedError);
+        writeTempInput("pic_profile_bad.txt", profileContent(c.header, c.rows));
+        const std::string path = writeTempInput("pic_input_profile_bad.txt",
+                                                hybridInputWith(c.extraLines));
+        CHECK_THROWS_WITH(parseInputFile(path),
+                          ContainsSubstring(c.expectedError));
     }
 }

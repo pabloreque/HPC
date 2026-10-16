@@ -53,9 +53,11 @@ $\vec E$ is not evolved in time; it is recomputed from Ohm's law, using the ion 
 
 **Initial ion load** (`src/loader.hpp`), in three steps:
 
-1. *Density mesh*: the initial ion density $n(x)$ is given on the primal nodes $x_i = i\,dx$, either uniform (`density=`) or node by node from a text file (`density_file=`). The loader only sees the array of node values, so a future Python front end (e.g. pybind11) can pass a NumPy array instead of a file.
-2. *Particles*: `ppc` macroparticles per cell, evenly spaced, with Maxwellian velocities (`vth`, `seed`).
-3. *Weights*: $w_p = n(x_p)/$`ppc`, with $n$ interpolated at $x_p$ by the same linear shape function as the deposit. Every cell has the same number of particles whatever its density, so the statistical noise is the same everywhere, and depositing the load gives back the density mesh (exactly for a uniform $n$, to $O((k\,dx)^2)$ otherwise, with the total charge exact). The weights never change during the run.
+1. *Initial moments on the mesh*: the ion density $n(x)$, bulk velocity $\vec u(x)$ and thermal speed $v_{th}(x)$, each either uniform (`density=`, $\vec u = 0$, `vth=`) or given node by node on the primal nodes $x_i = i\,dx$ by a profile file (`profile_file=`, `src/profile_file.hpp`). The loader only sees the arrays of node values, so a future Python front end (e.g. pybind11) can pass NumPy arrays instead of a file.
+2. *Particles*: `ppc` macroparticles per cell, evenly spaced.
+3. *Weights and velocities*: each particle at $x_p$ gets $w_p = n(x_p)/$`ppc` and $\vec v_p = \vec u(x_p) + v_{th}(x_p)\,\mathcal N(0, 1)$ per component (fixed `seed`), with the moments interpolated at $x_p$ by the same linear shape function as the deposit. Every cell has the same number of particles whatever its density, so the statistical noise is the same everywhere. Depositing the load gives back the mesh moments: exactly for uniform ones, to $O((k\,dx)^2)$ otherwise (total charge exact), plus the sampling noise of the thermal draws. The weights never change during the run.
+
+Profile file format: `#` comments and blank lines are skipped; the first line names the columns, any subset of `n ux uy uz vth` in any order; then exactly $n_x$ rows, one per primal node. Columns left out stay uniform. For example `examples/density_sine_profile.txt` has only an `n` column.
 
 **Moments of the distribution function on the grid** (slides 136–137, `src/shape.hpp`). Ohm's law needs the fluid quantities $n$ and $\vec u$ on the grid, but the ions are a set of macroparticles that sample $f(\vec r, \vec v)$. Each particle *deposits* its contribution on the surrounding nodes through a shape function $S$:
 
@@ -68,6 +70,8 @@ $$n_i = \sum_p q_p\, w_p\, S(x_p - x_i), \qquad \vec u_i = \frac{1}{n_i}\sum_p q
 - The same weights do the reverse operation, interpolating $\vec E$ and $\vec B$ from the grid to each particle at its mid-step position $\vec r^{n+1/2}$ (slide 147). Each field component is interpolated from its own primal or dual centering.
 
 Tested in `tests/test_shape.cpp`: a uniform load gives exactly $n = n_0$ on every node, the total charge is conserved across the periodic seam, and linear fields are interpolated exactly. The moments are saved as `n`, `ux`, `uy`, `uz` in `results.h5`.
+
+**Ion temperature** (diagnostic, `depositTemperature` in `src/shape.hpp`): the second moment $T_i = \langle m\,|\vec v - \vec u|^2\rangle / 3$ on the primal nodes, computed from the deposited sums of $w$, $w m$, $w m\vec v$ and $w m |\vec v|^2$, with $\vec u$ the mass-weighted bulk velocity. A Maxwellian of per-component spread $v_{th}$ gives $T_i = m v_{th}^2$. Ohm's law does not need it, so it is only computed at output times and saved as `Ti`.
 
 **Yee mesh** (slide 157, `src/grid.hpp`): 1D in $x$, $n_x$ cells, periodic. $E_x$, $B_y$, $B_z$ live on dual nodes $x_{i+1/2}$; $E_y$, $E_z$, $B_x$, $n$, $\vec u$ live on primal nodes $x_i$. Every derivative is then a centered two-point difference (second order), and $\partial_t B_x = 0$ keeps the discrete $\nabla\cdot\vec B$ exactly zero. Centering is defined per component *and per direction* (`electricCentering`, `magneticCentering`), so a 2D/3D extension only has to add the $y$/$z$ directions. (Slide 151 writes $\partial_t B_z = +\partial_x E_y - \partial_y E_x$; the curl gives the opposite sign, which is what the code uses.)
 
@@ -120,8 +124,9 @@ The $+$ root ($\omega > 0$) is the **L** wave: it rotates with the ions and satu
 **Validation** (Catch2 + `analysis_session_3.ipynb`):
 
 - Periodic folding: the periodic trajectory equals the unbounded one folded into the box.
-- Shape function: exact uniform density, charge conservation across the seam, exact interpolation of linear fields, and a sinusoidal density mesh deposited back within $O((k\,dx)^2)$ with exact total charge and weights that follow the profile.
-- Input: density profile files are read relative to the input file, and wrong value counts, non-positive values, `density=` with `density_file=`, and a wave on a non-uniform density are rejected.
+- Shape function: exact uniform density, charge conservation across the seam, exact interpolation of linear fields.
+- Initial load (`tests/test_loader.cpp`), against analytic profiles $n = 1 + 0.5\sin kx$, $\vec u = (0.1\cos kx,\ 0.3\sin kx,\ -0.2\cos kx)$, $v_{th} = 0.1(1 + 0.5\cos kx)$ sampled on the mesh: a cold load deposits $n$ and $\vec u$ back within $5\times10^{-3}$ on 32 cells and the error drops by 4 when $dx$ is halved (second order); weights follow the density and the total charge is exact; a warm load (4000 particles per cell) recovers $n$, $\vec u$ and $\sqrt{T_i} = v_{th}$ within the deterministic smoothing plus about 5 standard deviations of the sampling noise.
+- Input: profile files are read relative to the input file, with any subset of columns; unknown or repeated columns, rows of the wrong length, a wrong number of rows, $n \le 0$, $v_{th} < 0$, a column together with its uniform key (`density=`, `vth=`), and a wave with a profile file are rejected.
 - Field solver: second-order derivatives, Ampère/Faraday signs, Ohm's ideal, pressure and hyper-resistive terms, and a uniform equilibrium that stays exactly at rest.
 - Cold-plasma circularly polarized eigenmodes ($k d_i = 1$): measured $\omega_R = -1.6159$ (analytic $-1.6180$) and $\omega_L = 0.6184$ (analytic $0.6180$). Total energy is conserved to $\sim 10^{-10}$.
 - Hyper-resistive eigenmodes ($\nu = 0.002$): measured growth rates $\gamma_R = -0.00234$ (analytic $-0.00234$) and $\gamma_L = 0.00036$ (analytic $0.00034$).
@@ -142,7 +147,8 @@ PIC/
 │   ├── shape.hpp               # linear shape: moment deposit, field gather
 │   ├── field_solver.hpp        # Ampere, Faraday, Ohm's law
 │   ├── hybrid_step.hpp         # ICN predictor-corrector time step
-│   ├── loader.hpp              # ion load on a density mesh + eigenmode wave
+│   ├── loader.hpp              # ion load from mesh moments + eigenmode wave
+│   ├── profile_file.hpp        # initial n, u, vth profile file reader
 │   ├── parse.hpp               # value parsing helpers
 │   ├── input.hpp               # .txt parsing (test-particle / hybrid mode)
 │   ├── hybrid_input.hpp        # hybrid-mode keys and their validation
@@ -166,6 +172,7 @@ PIC/
 │   ├── test_input.cpp          # Catch2 tests of the .txt input parser
 │   ├── test_periodic.cpp       # periodic wrap and folded trajectories
 │   ├── test_shape.cpp          # deposit / gather
+│   ├── test_loader.cpp         # initial load vs analytic n, u, vth
 │   ├── test_field_solver.cpp   # Yee derivatives, Ampere, Faraday, Ohm
 │   └── test_hybrid_step.cpp    # eigenmodes, hyper-resistivity, ICN order
 ├── analysis_session_2.ipynb    # Session 2: trajectories vs analytic references
@@ -176,7 +183,7 @@ PIC/
 Input format (`key=value`, `#` = comment), two modes:
 
 - **Test-particle mode**: `dt`, `steps`, `E`, `B`, then per-particle `q=`, `m=`, `x=`, `v=` lines. Uniform static `E`/`B` shared by all particles. Optional `length=` makes $x$ periodic in $[0, L)$.
-- **Hybrid mode**, selected by an `nx=` line. Required: `dt`, `steps`, `B` (initial uniform $\vec B_0$), `length`, `nx`, `ppc` (protons per cell). Optional: `iterations` (ICN corrections, default 2), `output_every` (snapshot period in steps, default 1), `Te`, `eta`, `nu` (electron temperature, resistivity, hyper-resistivity; default 0), `density` (uniform, default 1) or `density_file` (initial density on the $n_x$ primal nodes, one value per line, `#` comments allowed, path relative to the input file), `vth` (thermal speed, default 0), `seed` (default 1), `wave_mode`, `wave_amplitude`, `wave_branch` (`R`/`L`; needs `B=1 0 0`, `density=1` and no `density_file`). `E=` and explicit particles are rejected: $\vec E$ comes from Ohm's law.
+- **Hybrid mode**, selected by an `nx=` line. Required: `dt`, `steps`, `B` (initial uniform $\vec B_0$), `length`, `nx`, `ppc` (protons per cell). Optional: `iterations` (ICN corrections, default 2), `output_every` (snapshot period in steps, default 1), `Te`, `eta`, `nu` (electron temperature, resistivity, hyper-resistivity; default 0), `density` (uniform, default 1), `vth` (uniform thermal speed, default 0), `profile_file` (initial `n ux uy uz vth` columns on the primal nodes, format above, path relative to the input file; a column excludes its uniform key), `seed` (default 1), `wave_mode`, `wave_amplitude`, `wave_branch` (`R`/`L`; needs `B=1 0 0`, `density=1` and no `profile_file`). `E=` and explicit particles are rejected: $\vec E$ comes from Ohm's law.
 
 ## Build and run (C++)
 
@@ -201,7 +208,7 @@ The first configure fetches [Catch2](https://github.com/catchorg/Catch2) v3.5.4 
 ./pic_prequeijo ../examples/density_sine.txt results.h5 /density_sine
 ```
 
-Test-particle runs print a per-particle summary and write `t`, `x`, `y`, `z`, `vx`, `vy`, `vz` per group (in `particle_N` subgroups for the multi runs). Hybrid runs print the initial/final energies and $\max|\nabla\cdot\vec B|$, and write `t`, `x_primal`, `x_dual` and one `(snapshots × nx)` dataset per grid quantity: `Ex`, `Ey`, `Ez`, `Bx`, `By`, `Bz`, `n`, `ux`, `uy`, `uz`. Each of these has a `centering` attribute (`primal`/`dual`). `thermal_noise` takes a few seconds and writes ~20 MB.
+Test-particle runs print a per-particle summary and write `t`, `x`, `y`, `z`, `vx`, `vy`, `vz` per group (in `particle_N` subgroups for the multi runs). Hybrid runs print the initial/final energies and $\max|\nabla\cdot\vec B|$, and write `t`, `x_primal`, `x_dual` and one `(snapshots × nx)` dataset per grid quantity: `Ex`, `Ey`, `Ez`, `Bx`, `By`, `Bz`, `n`, `ux`, `uy`, `uz`, `Ti`. Each of these has a `centering` attribute (`primal`/`dual`). `thermal_noise` takes a few seconds and writes ~20 MB.
 
 Full usage: `./pic_prequeijo <input.txt> [output.h5] [group]`, or `--group <group>` (defaults `results.h5`, `/trajectory`).
 

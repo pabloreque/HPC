@@ -78,11 +78,11 @@ inline void writeCenteringAttribute(H5::DataSet &dataset, Centering centering) {
     attribute.write(type, value);
 }
 
-constexpr std::size_t kSavedFieldCount = 10;
+constexpr std::size_t kSavedFieldCount = 11;
 
 // Dataset names of the saved grid quantities, in snapshotFields() order.
 constexpr std::array<const char *, kSavedFieldCount> kSavedFieldNames = {
-    "Ex", "Ey", "Ez", "Bx", "By", "Bz", "n", "ux", "uy", "uz"};
+    "Ex", "Ey", "Ez", "Bx", "By", "Bz", "n", "ux", "uy", "uz", "Ti"};
 
 // The saved grid quantities of one snapshot, in kSavedFieldNames order.
 inline std::array<const Field *, kSavedFieldCount>
@@ -96,7 +96,8 @@ snapshotFields(const FieldSnapshot &snapshot) {
             &snapshot.moments.density,
             &snapshot.moments.velocity.x,
             &snapshot.moments.velocity.y,
-            &snapshot.moments.velocity.z};
+            &snapshot.moments.velocity.z,
+            &snapshot.ionTemperature};
 }
 
 // Stacks grid quantity number quantityIndex of every snapshot into a row-major
@@ -154,7 +155,7 @@ inline void writeSnapshotTimes(H5::Group &group,
 }
 
 // Writes a hybrid run: t, x_primal, x_dual and one (snapshots x nx)
-// dataset per grid quantity (Ex..Ez, Bx..Bz, n, ux..uz).
+// dataset per grid quantity (Ex..Ez, Bx..Bz, n, ux..uz, Ti).
 inline void writeFieldHistory(H5::Group &group,
                               const std::vector<FieldSnapshot> &history,
                               const Grid1D &grid) {

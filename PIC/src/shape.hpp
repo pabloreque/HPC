@@ -116,6 +116,63 @@ inline Moments depositMoments(const std::vector<Particle1D> &particles,
     return moments;
 }
 
+// Mass-weighted sums of one population on the primal nodes, from which
+// the ion temperature follows.
+struct SecondMomentSums {
+    // Sum of w S (number density).
+    Field number;
+    // Sum of w m S.
+    Field mass;
+    // Sum of w m v S.
+    VecField momentum;
+    // Sum of w m |v|^2 S.
+    Field energy;
+};
+
+// Deposits one particle into the second-moment sums.
+inline void depositSecondMoment(SecondMomentSums &sums, const Particle1D &p,
+                                const Grid1D &grid) {
+    const LinearWeights w = linearWeights(p.position, Centering::Primal, grid);
+    const double massWeight = p.weight * p.species.mass;
+    scatter(sums.number, w, p.weight);
+    scatter(sums.mass, w, massWeight);
+    scatter(sums.momentum.x, w, massWeight * p.velocity.x);
+    scatter(sums.momentum.y, w, massWeight * p.velocity.y);
+    scatter(sums.momentum.z, w, massWeight * p.velocity.z);
+    scatter(sums.energy, w, massWeight * dot(p.velocity, p.velocity));
+}
+
+// Temperature T = (K - |P|^2/M) / (3 N) at node i from the sums
+// K = w m v^2, P = w m v, M = w m, N = w: the kinetic energy left after
+// removing the bulk flow, per particle and per degree of freedom.
+inline double nodeTemperature(const SecondMomentSums &sums, std::size_t i) {
+    const Vector3 momentum{sums.momentum.x.values[i], sums.momentum.y.values[i],
+                           sums.momentum.z.values[i]};
+    const double thermalEnergy =
+        sums.energy.values[i] -
+        dot(momentum, momentum) / safeDensity(sums.mass.values[i]);
+    return thermalEnergy / (3.0 * safeDensity(sums.number.values[i]));
+}
+
+// Isotropic ion temperature T = <m |v - u|^2> / 3 on the primal nodes,
+// with u the mass-weighted bulk velocity. A Maxwellian of per-component
+// std dev vth gives T = m vth^2. Diagnostic only: Ohm's law does not need
+// it, so it is computed at output times, not every step.
+inline Field depositTemperature(const std::vector<Particle1D> &particles,
+                                const Grid1D &grid) {
+    SecondMomentSums sums{
+        makeField(Centering::Primal, grid), makeField(Centering::Primal, grid),
+        makePrimalVecField(grid), makeField(Centering::Primal, grid)};
+    for (const Particle1D &p : particles) {
+        depositSecondMoment(sums, p, grid);
+    }
+    Field temperature = makeField(Centering::Primal, grid);
+    for (std::size_t i = 0; i < temperature.values.size(); ++i) {
+        temperature.values[i] = nodeTemperature(sums, i);
+    }
+    return temperature;
+}
+
 // Interpolates the Yee-mesh E and B at a particle position x.
 inline EMFields gatherFields(const VecField &E, const VecField &B, double x,
                              const Grid1D &grid) {

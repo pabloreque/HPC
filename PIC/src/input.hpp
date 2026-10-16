@@ -12,14 +12,13 @@ Reads key=value files (see examples/) in one of two modes:
 - Hybrid mode (Session 3), selected by an nx= line: dt, steps, B (initial
   uniform field), length, plus the keys of hybrid_input.hpp. E is computed
   from Ohm's law and particles are loaded from ppc=, so E= and explicit
-  particles are rejected. A density_file= line is read here into the
-  initial density profile (see hybrid_input.hpp for its format).
+  particles are rejected. A profile_file= line is read here into the
+  initial moment profiles (format in profile_file.hpp).
 
 Unknown keys and missing or invalid values fail with a descriptive error.
 */
 #pragma once
 
-#include <cstddef>
 #include <filesystem>
 #include <fstream>
 #include <optional>
@@ -31,6 +30,7 @@ Unknown keys and missing or invalid values fail with a descriptive error.
 #include "boris_pusher.hpp"
 #include "hybrid_input.hpp"
 #include "parse.hpp"
+#include "profile_file.hpp"
 #include "vector3.hpp"
 
 struct Input {
@@ -50,12 +50,6 @@ struct KeyLine {
     std::string value;
 };
 
-// Formats "path:lineNo: message" for errors tied to one input line.
-inline std::string lineError(const std::string &path, int lineNo,
-                             const std::string &message) {
-    return path + ":" + std::to_string(lineNo) + ": " + message;
-}
-
 // Splits "key = value" into trimmed key and value. Fails on lines without
 // '=' or with an empty value.
 inline KeyLine splitKeyValue(const std::string &line, const std::string &path,
@@ -71,11 +65,6 @@ inline KeyLine splitKeyValue(const std::string &line, const std::string &path,
             lineError(path, lineNo, "empty value for '" + keyLine.key + "'"));
     }
     return keyLine;
-}
-
-// Drops a trailing '#' comment and the surrounding whitespace.
-inline std::string stripComment(const std::string &line) {
-    return trim(line.substr(0, line.find('#')));
 }
 
 // Reads the next meaningful "key=value" line: strips '#' comments and
@@ -106,7 +95,10 @@ struct InputBuilder {
     bool hasDt = false, hasSteps = false;
     bool hasE = false, hasB = false;
     HybridSettings hybrid;
-    bool hasNx = false, hasPpc = false, hasDensity = false;
+    bool hasNx = false, hasPpc = false;
+    // Uniform moments set explicitly, which a profile column must not
+    // also set.
+    bool hasDensity = false, hasVth = false;
     // First hybrid-only key seen, reported if nx= is missing.
     std::string firstHybridKey;
     Species pendingSpecies{0.0, 0.0};
@@ -198,6 +190,7 @@ struct InputBuilder {
         hasNx = hasNx || key == "nx";
         hasPpc = hasPpc || key == "ppc";
         hasDensity = hasDensity || key == "density";
+        hasVth = hasVth || key == "vth";
         if (firstHybridKey.empty()) {
             firstHybridKey = key;
         }
@@ -269,12 +262,8 @@ inline void checkTestParticleMode(const InputBuilder &builder) {
     }
 }
 
-// Hybrid mode: no E= or explicit particles, at most one way of giving
-// the density, and valid hybrid settings.
+// Hybrid mode: no E= or explicit particles, and valid hybrid settings.
 inline void checkHybridMode(const InputBuilder &builder) {
-    if (builder.hasDensity && !builder.hybrid.densityFile.empty()) {
-        failFile(builder, "density= and density_file= are mutually exclusive");
-    }
     if (builder.hasE) {
         failFile(builder,
                  "E= is not allowed in hybrid mode (E comes from Ohm's "
@@ -310,50 +299,28 @@ inline std::string resolveRelativeTo(const std::string &inputPath,
     return (std::filesystem::path(inputPath).parent_path() / path).string();
 }
 
-// Parses one value of a density profile file, which must be > 0.
-inline double parseDensityValue(const std::string &text,
-                                const std::string &path, int lineNo) {
-    try {
-        const double density = parseDouble(text, "density");
-        require(density > 0.0, "density must be > 0");
-        return density;
-    } catch (const std::invalid_argument &error) {
-        throw std::runtime_error(lineError(path, lineNo, error.what()));
+// Throws if a moment is given both by a uniform key and by a column of
+// the profile file.
+inline void checkProfileConflicts(const InputBuilder &builder,
+                                  const NodeProfiles &profiles) {
+    if (builder.hasDensity && !profiles.density.empty()) {
+        failFile(builder, "density= conflicts with the n column of the "
+                          "profile file");
+    }
+    if (builder.hasVth && !profiles.thermalSpeed.empty()) {
+        failFile(builder, "vth= conflicts with the vth column of the "
+                          "profile file");
     }
 }
 
-// Reads a density profile file: one value per line, '#' comments and
-// blank lines skipped. Throws unless it holds exactly nx values > 0.
-inline std::vector<double> readDensityProfile(const std::string &path, int nx) {
-    std::ifstream file(path);
-    if (!file) {
-        throw std::runtime_error("cannot open density file '" + path + "'");
-    }
-    std::vector<double> profile;
-    std::string line;
-    int lineNo = 0;
-    while (std::getline(file, line)) {
-        ++lineNo;
-        line = stripComment(line);
-        if (!line.empty()) {
-            profile.push_back(parseDensityValue(line, path, lineNo));
-        }
-    }
-    if (profile.size() != static_cast<std::size_t>(nx)) {
-        throw std::runtime_error(path + ": expected nx=" + std::to_string(nx) +
-                                 " density values, got " +
-                                 std::to_string(profile.size()));
-    }
-    return profile;
-}
-
-// The validated hybrid settings, with the density profile file (if any)
-// read into population.densityProfile.
+// The validated hybrid settings, with the profile file (if any) read
+// into population.profiles.
 inline HybridSettings loadHybridSettings(const InputBuilder &builder) {
     HybridSettings settings = builder.hybrid;
-    if (!settings.densityFile.empty()) {
-        settings.population.densityProfile = readDensityProfile(
-            resolveRelativeTo(builder.path, settings.densityFile), settings.nx);
+    if (!settings.profileFile.empty()) {
+        settings.population.profiles = readProfileFile(
+            resolveRelativeTo(builder.path, settings.profileFile), settings.nx);
+        checkProfileConflicts(builder, settings.population.profiles);
     }
     return settings;
 }

@@ -12,11 +12,12 @@ An nx= line switches the input file to hybrid mode (see input.hpp):
   nu            hyper-resistivity (default 0)
   ppc           particles per cell
   density       uniform ion density (default 1)
-  density_file  text file with the initial ion density on the nx primal
-                nodes x_i = i*dx, one value per line ('#' comments
-                allowed); path relative to the input file. Excludes
-                density=.
-  vth           thermal speed, per-component std dev (default 0: cold)
+  vth           uniform thermal speed, per-component std dev (default 0:
+                cold)
+  profile_file  initial n, ux, uy, uz, vth on the nx primal nodes, as
+                named columns (format in profile_file.hpp); path relative
+                to the input file. A column excludes the matching uniform
+                key (density=, vth=).
   seed          random seed of the thermal velocities (default 1)
   wave_mode     wavelengths in the box of the eigenmode (default 0: none)
   wave_amplitude, wave_branch (R or L)
@@ -35,20 +36,13 @@ struct HybridSettings {
     int nx = 0;
     int iterations = 2;
     int outputEvery = 1;
-    // Density profile file (density_file=); empty for a uniform density.
-    // input.hpp reads it into population.densityProfile.
-    std::string densityFile;
+    // Initial moment profile file (profile_file=); empty for uniform
+    // moments. input.hpp reads it into population.profiles.
+    std::string profileFile;
     ElectronModel electrons;
     PopulationSettings population;
     WaveSettings wave;
 };
-
-// Throws invalid_argument with 'message' if 'condition' is false.
-inline void require(bool condition, const std::string &message) {
-    if (!condition) {
-        throw std::invalid_argument(message);
-    }
-}
 
 // Parses "R" or "L". Throws invalid_argument otherwise.
 inline WaveBranch parseWaveBranch(const std::string &value) {
@@ -125,14 +119,14 @@ inline bool applyWaveKey(WaveSettings &wave, const std::string &key,
     return true;
 }
 
-// Handles density_file. Returns false otherwise.
-inline bool applyDensityFileKey(HybridSettings &settings,
+// Handles profile_file. Returns false otherwise.
+inline bool applyProfileFileKey(HybridSettings &settings,
                                 const std::string &key,
                                 const std::string &value) {
-    if (key != "density_file") {
+    if (key != "profile_file") {
         return false;
     }
-    settings.densityFile = value;
+    settings.profileFile = value;
     return true;
 }
 
@@ -140,7 +134,7 @@ inline bool applyDensityFileKey(HybridSettings &settings,
 inline bool applyHybridKey(HybridSettings &settings, const std::string &key,
                            const std::string &value) {
     return applySolverKey(settings, key, value) ||
-           applyDensityFileKey(settings, key, value) ||
+           applyProfileFileKey(settings, key, value) ||
            applyPopulationKey(settings.population, key, value) ||
            applyWaveKey(settings.wave, key, value);
 }
@@ -174,8 +168,8 @@ inline void validateWaveSettings(const HybridSettings &settings,
     require(B0.x == 1.0 && B0.y == 0.0 && B0.z == 0.0,
             "a wave needs B=1 0 0 (normalized eigenmode)");
     require(settings.population.density == 1.0, "a wave needs density=1");
-    require(settings.densityFile.empty(),
-            "a wave needs a uniform density (no density_file=)");
+    require(settings.profileFile.empty(),
+            "a wave needs uniform moments (no profile_file=)");
 }
 
 // Validates all hybrid settings. Throws invalid_argument on failure.

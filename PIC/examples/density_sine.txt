@@ -1,6 +1,6 @@
 # Hybrid PIC input (key=value, '#' = comment), hybrid mode (nx= present).
-# Non-uniform initial density read from a file: n(x) = 1 + 0.01 cos(kx),
-# k = 2 pi / L = 0.1, on the primal nodes (density_sine_profile.txt).
+# Non-uniform initial density read from a profile file (n column):
+# n(x) = 1 + 0.01 cos(kx), k = 2 pi / L = 0.1, on the primal nodes.
 # Cold ions at rest in B0 = x, Te = 1: the density bump launches a
 # standing ion acoustic wave along B0, omega = k sqrt(Te) = 0.1 Omega_ci
 # (period 62.8). About 2 periods; a small 1 % bump keeps it linear.
@@ -13,4 +13,4 @@ iterations=2
 B=1 0 0
 Te=1
 ppc=100
-density_file=density_sine_profile.txt
+profile_file=density_sine_profile.txt

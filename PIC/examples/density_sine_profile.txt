@@ -1,5 +1,7 @@
 # Initial ion density n(x_i) = 1 + 0.01 cos(2 pi x_i / L) on the
 # nx = 64 primal nodes x_i = i L / nx, L = 20 pi (density_sine.txt).
+# Only the n column: u = 0 and vth = 0 (cold) stay uniform.
+n
 1.01
 1.0099518472667219
 1.0098078528040324

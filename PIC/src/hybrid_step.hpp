@@ -130,11 +130,15 @@ struct FieldSnapshot {
     VecField E;
     VecField B;
     Moments moments;
+    // Ion temperature on primal nodes (diagnostic, see depositTemperature).
+    Field ionTemperature;
 };
 
-// Copies the grid quantities of 'state' at 'time'.
+// Copies the grid quantities of 'state' at 'time' and computes the ion
+// temperature.
 inline FieldSnapshot takeSnapshot(const HybridState &state, double time) {
-    return FieldSnapshot{time, state.E, state.B, state.moments};
+    return FieldSnapshot{time, state.E, state.B, state.moments,
+                         depositTemperature(state.particles, state.grid)};
 }
 
 // Approximate ICN (2 corrections) stability limit. The fastest grid mode,

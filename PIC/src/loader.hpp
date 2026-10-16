@@ -1,21 +1,23 @@
 /*
 Pablo Requeijo, October 1 2026.
 Session 3, HPC coursework: hybrid PIC.
-Initial conditions: proton population on a density mesh, optional wave.
+Initial conditions: proton population from initial moments on the mesh,
+optional wave.
 
 Population, loaded in three steps:
-1. Density mesh: the initial ion density n is given on the primal nodes
-   x_i = i*dx, either uniform (density=) or as one value per node
-   (densityProfile, e.g. read from a file, or later passed from Python).
-2. 'ppc' protons (q = m = 1) per cell, evenly spaced in x, with Maxwellian
-   velocities of per-component standard deviation vth (fixed seed,
-   reproducible).
-3. Each macroparticle gets the weight w_p = n(x_p)/ppc, with n
-   interpolated at x_p by the same linear shape function as the deposit,
-   so depositing the loaded particles gives back the density mesh (exactly
-   for a uniform n, to O(dx^2) otherwise). The weights never change
-   during the run: a macroparticle always stands for the same number of
-   physical ions.
+1. Initial moments: the ion density n, bulk velocity u and thermal speed
+   vth, each either uniform (density=, u = 0, vth=) or given on the
+   primal nodes x_i = i*dx (NodeProfiles, e.g. read from a profile file,
+   or later passed from Python) and linearly interpolated in between,
+   with the same shape function as the deposit.
+2. 'ppc' protons (q = m = 1) per cell, evenly spaced in x.
+3. Each macroparticle at x_p gets the weight w_p = n(x_p)/ppc and the
+   velocity v_p = u(x_p) + vth(x_p) * N(0, 1) per component (fixed seed,
+   reproducible), plus the wave velocity if any. Depositing the loaded
+   particles gives back the mesh moments: exactly for uniform ones, to
+   O(dx^2) otherwise, plus the statistical noise of the thermal draws.
+   The weights never change during the run: a macroparticle always
+   stands for the same number of physical ions.
 
 Wave: a circularly polarized parallel eigenmode of the cold-ion hybrid
 equations with B0 = x (|B0| = 1, n0 = 1). With b = By + i*Bz and
@@ -43,6 +45,7 @@ instead of a mix of R and L.
 #include <cmath>
 #include <complex> // std::complex: wave as b = By + i*Bz
 #include <cstddef>
+#include <optional>
 #include <random>
 #include <vector>
 
@@ -53,19 +56,27 @@ instead of a mix of R and L.
 
 constexpr double kTwoPi = 6.28318530717958647692;
 
+// Initial ion moments on the nx primal nodes x_i = i*dx. An empty vector
+// means that moment is uniform (see PopulationSettings).
+struct NodeProfiles {
+    std::vector<double> density;
+    std::vector<Vector3> bulkVelocity;
+    std::vector<double> thermalSpeed;
+};
+
 struct PopulationSettings {
     // Macroparticles per cell.
     int ppc = 0;
-    // Uniform ion density n0, used when densityProfile is empty.
+    // Uniform ion density n0, used when profiles.density is empty.
     double density = 1.0;
-    // Thermal speed: per-component std dev of the Maxwellian, in v_A
-    // (T_i = vth^2, beta_i = 2 n vth^2/|B0|^2); 0 for a cold population.
+    // Uniform thermal speed, used when profiles.thermalSpeed is empty:
+    // per-component std dev of the Maxwellian, in v_A (T_i = vth^2,
+    // beta_i = 2 n vth^2/|B0|^2); 0 for a cold population.
     double vth = 0.0;
     // Seed of the thermal velocity draws (same seed, same run).
     unsigned seed = 1;
-    // Initial ion density on the nx primal nodes x_i = i*dx; empty for a
-    // uniform density.
-    std::vector<double> densityProfile;
+    // Non-uniform initial moments; the bulk velocity is 0 when not given.
+    NodeProfiles profiles;
 };
 
 enum class WaveBranch { R, L };
@@ -139,12 +150,59 @@ inline Vector3 thermalVelocity(std::mt19937 &rng, double vth) {
     return Vector3{vx, vy, vz};
 }
 
-// Initial ion density on the primal nodes: the profile if given,
-// otherwise the uniform density.
+// A scalar initial moment: uniform, or given on the primal nodes and
+// linearly interpolated in between. The uniform value is returned as is,
+// so a uniform load stays exact.
+struct ScalarProfile {
+    double uniform = 0.0;
+    std::optional<Field> nodes;
+
+    // Value at position x.
+    double at(double x, const Grid1D &grid) const {
+        return nodes ? interpolate(*nodes, x, grid) : uniform;
+    }
+};
+
+// A vector initial moment: zero, or given on the primal nodes and
+// linearly interpolated in between.
+struct VectorProfile {
+    std::optional<VecField> nodes;
+
+    // Value at position x.
+    Vector3 at(double x, const Grid1D &grid) const {
+        return nodes ? interpolate(*nodes, x, grid) : Vector3{};
+    }
+};
+
+// Scalar profile from node values, or uniform if 'values' is empty.
+inline ScalarProfile scalarProfile(const std::vector<double> &values,
+                                   double uniform) {
+    if (values.empty()) {
+        return ScalarProfile{uniform, std::nullopt};
+    }
+    return ScalarProfile{uniform, Field{Centering::Primal, values}};
+}
+
+// Vector profile from node values, or zero if 'values' is empty.
+inline VectorProfile vectorProfile(const std::vector<Vector3> &values,
+                                   const Grid1D &grid) {
+    if (values.empty()) {
+        return VectorProfile{};
+    }
+    VecField field = makePrimalVecField(grid);
+    for (std::size_t i = 0; i < values.size(); ++i) {
+        field.x.values[i] = values[i].x;
+        field.y.values[i] = values[i].y;
+        field.z.values[i] = values[i].z;
+    }
+    return VectorProfile{field};
+}
+
+// Initial ion density on the primal nodes (uniform or from the profile).
 inline Field initialDensity(const PopulationSettings &population,
                             const Grid1D &grid) {
-    if (!population.densityProfile.empty()) {
-        return Field{Centering::Primal, population.densityProfile};
+    if (!population.profiles.density.empty()) {
+        return Field{Centering::Primal, population.profiles.density};
     }
     Field density = makeField(Centering::Primal, grid);
     std::fill(density.values.begin(), density.values.end(), population.density);
@@ -153,31 +211,56 @@ inline Field initialDensity(const PopulationSettings &population,
 
 // Smallest initial ion density: where the whistler is fastest.
 inline double minimumDensity(const PopulationSettings &population) {
-    if (population.densityProfile.empty()) {
+    const std::vector<double> &profile = population.profiles.density;
+    if (profile.empty()) {
         return population.density;
     }
-    return *std::min_element(population.densityProfile.begin(),
-                             population.densityProfile.end());
+    return *std::min_element(profile.begin(), profile.end());
 }
 
-// Loads ppc protons per cell, evenly spaced, thermal plus wave velocity,
-// each weighted by the density mesh at its position.
+// Loads protons one at a time from the initial moments: weight n/ppc,
+// velocity u + vth * N(0, 1) + wave velocity, all evaluated at x.
+struct ParticleLoader {
+    ScalarProfile density;
+    VectorProfile bulkVelocity;
+    ScalarProfile thermalSpeed;
+    WaveSettings wave;
+    Grid1D grid;
+    int ppc;
+    std::mt19937 rng;
+
+    // Builds the loader of 'population' (and 'wave') on 'grid'.
+    ParticleLoader(const PopulationSettings &population,
+                   const WaveSettings &wave, const Grid1D &grid)
+        : density(
+              scalarProfile(population.profiles.density, population.density)),
+          bulkVelocity(vectorProfile(population.profiles.bulkVelocity, grid)),
+          thermalSpeed(
+              scalarProfile(population.profiles.thermalSpeed, population.vth)),
+          wave(wave), grid(grid), ppc(population.ppc), rng(population.seed) {
+    }
+
+    // Loads one proton at x.
+    Particle1D particleAt(double x) {
+        const Species proton{1.0, 1.0};
+        const Vector3 v = bulkVelocity.at(x, grid) +
+                          thermalVelocity(rng, thermalSpeed.at(x, grid)) +
+                          waveVelocity(x, wave, grid);
+        return Particle1D{x, v, proton, density.at(x, grid) / ppc};
+    }
+};
+
+// Loads ppc protons per cell, evenly spaced, from the initial moments.
 inline std::vector<Particle1D> loadPlasma(const PopulationSettings &population,
                                           const WaveSettings &wave,
                                           const Grid1D &grid) {
-    std::mt19937 rng(population.seed);
-    const Species proton{1.0, 1.0};
-    const Field density = initialDensity(population, grid);
+    ParticleLoader loader(population, wave, grid);
     std::vector<Particle1D> particles;
     particles.reserve(static_cast<std::size_t>(grid.nx) * population.ppc);
     for (int cell = 0; cell < grid.nx; ++cell) {
         for (int k = 0; k < population.ppc; ++k) {
             const double x = (cell + (k + 0.5) / population.ppc) * grid.dx;
-            const Vector3 v = thermalVelocity(rng, population.vth) +
-                              waveVelocity(x, wave, grid);
-            const double weight =
-                interpolate(density, x, grid) / population.ppc;
-            particles.push_back(Particle1D{x, v, proton, weight});
+            particles.push_back(loader.particleAt(x));
         }
     }
     return particles;
