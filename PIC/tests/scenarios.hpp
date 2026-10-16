@@ -145,7 +145,7 @@ inline HybridScenario waveScenario(WaveBranch branch, int nx, double dt,
     const Vector3 B0{kB0, 0.0, 0.0};
     HybridState state =
         initializeState(grid, initialMagneticField(B0, wave, grid),
-                        loadUniformPlasma(population, wave, grid), electrons);
+                        loadPlasma(population, wave, grid), electrons);
     return HybridScenario{std::move(state),
                           HybridParameters{dt, iterations, electrons}, wave};
 }

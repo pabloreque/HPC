@@ -186,7 +186,7 @@ TEST_CASE("A uniform equilibrium has E = 0 and stays exactly at rest",
     const ElectronModel electrons{0.3, 0.01, 0.001};
     const VecField B0 = uniformB({1.0, 0.3, -0.2}, grid);
     HybridState state = initializeState(
-        grid, B0, loadUniformPlasma(population, WaveSettings{}, grid),
+        grid, B0, loadPlasma(population, WaveSettings{}, grid),
         electrons);
     REQUIRE(maxAbs(state.E) < 1e-14);
     const HybridParameters params{0.01, 2, electrons};

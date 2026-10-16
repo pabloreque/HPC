@@ -7,6 +7,8 @@ deposition and field interpolation on the periodic Yee mesh.
 
 #include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
+#include <cmath>
+#include <cstddef>
 #include <vector>
 
 #include "grid.hpp"
@@ -46,12 +48,42 @@ TEST_CASE("A uniform load deposits exactly the requested density",
           "[shape][deposit]") {
     const PopulationSettings population{7, 2.5, 0.0, 1};
     const std::vector<Particle1D> particles =
-        loadUniformPlasma(population, WaveSettings{}, kGrid);
+        loadPlasma(population, WaveSettings{}, kGrid);
     const Moments moments = depositMoments(particles, kGrid);
     for (int i = 0; i < kGrid.nx; ++i) {
         REQUIRE(moments.density.values[i] == Catch::Approx(2.5).epsilon(1e-12));
         REQUIRE(moments.velocity.y.values[i] == 0.0);
     }
+}
+
+TEST_CASE("A density profile load deposits the density mesh back",
+          "[shape][deposit][density]") {
+    const double k = kTwoPi / kGrid.length;
+    PopulationSettings population{20, 1.0, 0.0, 1};
+    for (int i = 0; i < kGrid.nx; ++i) {
+        const double x = nodePosition(i, Centering::Primal, kGrid);
+        population.densityProfile.push_back(1.0 + 0.5 * std::sin(k * x));
+    }
+    const Field profile = initialDensity(population, kGrid);
+    const std::vector<Particle1D> particles =
+        loadPlasma(population, WaveSettings{}, kGrid);
+    const Moments moments = depositMoments(particles, kGrid);
+    // Every cell holds ppc particles at the same offsets, so the total
+    // deposited charge is exactly the sum of the mesh density.
+    REQUIRE(total(moments.density) ==
+            Catch::Approx(total(profile)).epsilon(1e-12));
+    // Interpolating then depositing smooths the profile by O((k dx)^2).
+    for (int i = 0; i < kGrid.nx; ++i) {
+        CAPTURE(i);
+        REQUIRE(moments.density.values[i] ==
+                Catch::Approx(profile.values[i]).margin(0.02));
+    }
+    // Weights follow the mesh: heavier at the density peak (x = L/4) than
+    // at the trough (x = 3L/4).
+    const std::size_t peakCell = kGrid.nx / 4, troughCell = 3 * kGrid.nx / 4;
+    const std::size_t ppc = population.ppc;
+    REQUIRE(particles[peakCell * ppc].weight >
+            2.0 * particles[troughCell * ppc].weight);
 }
 
 TEST_CASE("Deposition conserves the total charge across the periodic seam",

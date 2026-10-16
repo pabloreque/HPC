@@ -11,7 +11,11 @@ An nx= line switches the input file to hybrid mode (see input.hpp):
   Te, eta       electron temperature and resistivity (default 0)
   nu            hyper-resistivity (default 0)
   ppc           particles per cell
-  density       ion density (default 1)
+  density       uniform ion density (default 1)
+  density_file  text file with the initial ion density on the nx primal
+                nodes x_i = i*dx, one value per line ('#' comments
+                allowed); path relative to the input file. Excludes
+                density=.
   vth           thermal speed, per-component std dev (default 0: cold)
   seed          random seed of the thermal velocities (default 1)
   wave_mode     wavelengths in the box of the eigenmode (default 0: none)
@@ -31,6 +35,9 @@ struct HybridSettings {
     int nx = 0;
     int iterations = 2;
     int outputEvery = 1;
+    // Density profile file (density_file=); empty for a uniform density.
+    // input.hpp reads it into population.densityProfile.
+    std::string densityFile;
     ElectronModel electrons;
     PopulationSettings population;
     WaveSettings wave;
@@ -118,10 +125,22 @@ inline bool applyWaveKey(WaveSettings &wave, const std::string &key,
     return true;
 }
 
+// Handles density_file. Returns false otherwise.
+inline bool applyDensityFileKey(HybridSettings &settings,
+                                const std::string &key,
+                                const std::string &value) {
+    if (key != "density_file") {
+        return false;
+    }
+    settings.densityFile = value;
+    return true;
+}
+
 // Handles every hybrid-mode key. Returns false if 'key' is not one.
 inline bool applyHybridKey(HybridSettings &settings, const std::string &key,
                            const std::string &value) {
     return applySolverKey(settings, key, value) ||
+           applyDensityFileKey(settings, key, value) ||
            applyPopulationKey(settings.population, key, value) ||
            applyWaveKey(settings.wave, key, value);
 }
@@ -155,6 +174,8 @@ inline void validateWaveSettings(const HybridSettings &settings,
     require(B0.x == 1.0 && B0.y == 0.0 && B0.z == 0.0,
             "a wave needs B=1 0 0 (normalized eigenmode)");
     require(settings.population.density == 1.0, "a wave needs density=1");
+    require(settings.densityFile.empty(),
+            "a wave needs a uniform density (no density_file=)");
 }
 
 // Validates all hybrid settings. Throws invalid_argument on failure.

@@ -12,12 +12,15 @@ Reads key=value files (see examples/) in one of two modes:
 - Hybrid mode (Session 3), selected by an nx= line: dt, steps, B (initial
   uniform field), length, plus the keys of hybrid_input.hpp. E is computed
   from Ohm's law and particles are loaded from ppc=, so E= and explicit
-  particles are rejected.
+  particles are rejected. A density_file= line is read here into the
+  initial density profile (see hybrid_input.hpp for its format).
 
 Unknown keys and missing or invalid values fail with a descriptive error.
 */
 #pragma once
 
+#include <cstddef>
+#include <filesystem>
 #include <fstream>
 #include <optional>
 #include <stdexcept>
@@ -103,7 +106,7 @@ struct InputBuilder {
     bool hasDt = false, hasSteps = false;
     bool hasE = false, hasB = false;
     HybridSettings hybrid;
-    bool hasNx = false, hasPpc = false;
+    bool hasNx = false, hasPpc = false, hasDensity = false;
     // First hybrid-only key seen, reported if nx= is missing.
     std::string firstHybridKey;
     Species pendingSpecies{0.0, 0.0};
@@ -194,6 +197,7 @@ struct InputBuilder {
         }
         hasNx = hasNx || key == "nx";
         hasPpc = hasPpc || key == "ppc";
+        hasDensity = hasDensity || key == "density";
         if (firstHybridKey.empty()) {
             firstHybridKey = key;
         }
@@ -265,8 +269,12 @@ inline void checkTestParticleMode(const InputBuilder &builder) {
     }
 }
 
-// Hybrid mode: no E= or explicit particles, and valid hybrid settings.
+// Hybrid mode: no E= or explicit particles, at most one way of giving
+// the density, and valid hybrid settings.
 inline void checkHybridMode(const InputBuilder &builder) {
+    if (builder.hasDensity && !builder.hybrid.densityFile.empty()) {
+        failFile(builder, "density= and density_file= are mutually exclusive");
+    }
     if (builder.hasE) {
         failFile(builder,
                  "E= is not allowed in hybrid mode (E comes from Ohm's "
@@ -295,6 +303,61 @@ inline void validateInput(const InputBuilder &builder) {
     }
 }
 
+// Resolves 'path' relative to the directory of the input file
+// 'inputPath'; an absolute 'path' is returned unchanged.
+inline std::string resolveRelativeTo(const std::string &inputPath,
+                                     const std::string &path) {
+    return (std::filesystem::path(inputPath).parent_path() / path).string();
+}
+
+// Parses one value of a density profile file, which must be > 0.
+inline double parseDensityValue(const std::string &text,
+                                const std::string &path, int lineNo) {
+    try {
+        const double density = parseDouble(text, "density");
+        require(density > 0.0, "density must be > 0");
+        return density;
+    } catch (const std::invalid_argument &error) {
+        throw std::runtime_error(lineError(path, lineNo, error.what()));
+    }
+}
+
+// Reads a density profile file: one value per line, '#' comments and
+// blank lines skipped. Throws unless it holds exactly nx values > 0.
+inline std::vector<double> readDensityProfile(const std::string &path, int nx) {
+    std::ifstream file(path);
+    if (!file) {
+        throw std::runtime_error("cannot open density file '" + path + "'");
+    }
+    std::vector<double> profile;
+    std::string line;
+    int lineNo = 0;
+    while (std::getline(file, line)) {
+        ++lineNo;
+        line = stripComment(line);
+        if (!line.empty()) {
+            profile.push_back(parseDensityValue(line, path, lineNo));
+        }
+    }
+    if (profile.size() != static_cast<std::size_t>(nx)) {
+        throw std::runtime_error(path + ": expected nx=" + std::to_string(nx) +
+                                 " density values, got " +
+                                 std::to_string(profile.size()));
+    }
+    return profile;
+}
+
+// The validated hybrid settings, with the density profile file (if any)
+// read into population.densityProfile.
+inline HybridSettings loadHybridSettings(const InputBuilder &builder) {
+    HybridSettings settings = builder.hybrid;
+    if (!settings.densityFile.empty()) {
+        settings.population.densityProfile = readDensityProfile(
+            resolveRelativeTo(builder.path, settings.densityFile), settings.nx);
+    }
+    return settings;
+}
+
 // Reads the whole .txt into a validated Input.
 inline Input parseInputFile(const std::string &path) {
     std::ifstream file(path);
@@ -309,7 +372,7 @@ inline Input parseInputFile(const std::string &path) {
     }
     validateInput(builder);
     if (builder.hasNx) {
-        builder.input.hybrid = builder.hybrid;
+        builder.input.hybrid = loadHybridSettings(builder);
     }
     return builder.input;
 }

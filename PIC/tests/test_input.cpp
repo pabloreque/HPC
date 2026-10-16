@@ -14,6 +14,7 @@ checks that parseInputFile either reads it correctly or fails with a
 #include <filesystem>
 #include <fstream>
 #include <string>
+#include <tuple>
 #include <utility>
 #include <vector>
 
@@ -180,4 +181,71 @@ TEST_CASE("Input parser requires nx= for hybrid-only keys", "[input][hybrid]") {
                                             "dt=0.1\nsteps=1\nB=1 0 0\nnx=8\n");
     CHECK_THROWS_WITH(parseInputFile(path),
                       ContainsSubstring("missing required key 'length'"));
+}
+
+// Content of a density profile file: a comment, a blank line, then
+// 'values' one per line.
+std::string densityProfileContent(const std::vector<std::string> &values) {
+    std::string content = "# density on the primal nodes\n\n";
+    for (const std::string &value : values) {
+        content += value + "\n";
+    }
+    return content;
+}
+
+// 'count' density values 1, 1.01, 1.02, ... as text.
+std::vector<std::string> rampValues(int count) {
+    std::vector<std::string> values;
+    for (int i = 0; i < count; ++i) {
+        values.push_back(std::to_string(1.0 + 0.01 * i));
+    }
+    return values;
+}
+
+TEST_CASE("Input parser reads a density profile file next to the input",
+          "[input][hybrid][density]") {
+    writeTempInput("pic_density_ramp.txt",
+                   densityProfileContent(rampValues(64)));
+    const std::string path =
+        writeTempInput("pic_input_density.txt",
+                       hybridInputWith({"density_file=pic_density_ramp.txt"}));
+    const Input input = parseInputFile(path);
+    const std::vector<double> &profile =
+        input.hybrid->population.densityProfile;
+    REQUIRE(profile.size() == 64);
+    REQUIRE(profile.front() == 1.0);
+    REQUIRE(profile.back() == 1.63);
+}
+
+TEST_CASE("Input parser rejects bad density profiles",
+          "[input][hybrid][density]") {
+    std::vector<std::string> withZero = rampValues(64);
+    withZero[5] = "0";
+    std::vector<std::string> withText = rampValues(64);
+    withText[0] = "abc";
+    const std::string fileLine = "density_file=pic_density_bad.txt";
+    const std::vector<std::tuple<std::vector<std::string>,
+                                 std::vector<std::string>, std::string>>
+        cases = {
+            {rampValues(63),
+             {fileLine},
+             "expected nx=64 density values, got 63"},
+            {withZero,
+             {fileLine},
+             "pic_density_bad.txt:8: density must be > 0"},
+            {withText, {fileLine}, "pic_density_bad.txt:3: bad value"},
+            {rampValues(64), {fileLine, "density=2"}, "mutually exclusive"},
+            {rampValues(64),
+             {fileLine, "wave_mode=1"},
+             "a wave needs a uniform density"},
+            {rampValues(64),
+             {"density_file=pic_density_missing.txt"},
+             "cannot open density file"}};
+    for (const auto &[values, extra, expected] : cases) {
+        CAPTURE(expected);
+        writeTempInput("pic_density_bad.txt", densityProfileContent(values));
+        const std::string path =
+            writeTempInput("pic_input_density_bad.txt", hybridInputWith(extra));
+        CHECK_THROWS_WITH(parseInputFile(path), ContainsSubstring(expected));
+    }
 }

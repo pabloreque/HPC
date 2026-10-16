@@ -1,12 +1,21 @@
 /*
 Pablo Requeijo, October 1 2026.
 Session 3, HPC coursework: hybrid PIC.
-Initial conditions: uniform proton population and optional wave.
+Initial conditions: proton population on a density mesh, optional wave.
 
-Population: 'ppc' protons (q = m = 1) per cell, evenly spaced in x so the
-deposited density is exactly uniform, with Maxwellian velocities of
-per-component standard deviation vth (fixed seed, reproducible). Each
-macroparticle carries weight density/ppc.
+Population, loaded in three steps:
+1. Density mesh: the initial ion density n is given on the primal nodes
+   x_i = i*dx, either uniform (density=) or as one value per node
+   (densityProfile, e.g. read from a file, or later passed from Python).
+2. 'ppc' protons (q = m = 1) per cell, evenly spaced in x, with Maxwellian
+   velocities of per-component standard deviation vth (fixed seed,
+   reproducible).
+3. Each macroparticle gets the weight w_p = n(x_p)/ppc, with n
+   interpolated at x_p by the same linear shape function as the deposit,
+   so depositing the loaded particles gives back the density mesh (exactly
+   for a uniform n, to O(dx^2) otherwise). The weights never change
+   during the run: a macroparticle always stands for the same number of
+   physical ions.
 
 Wave: a circularly polarized parallel eigenmode of the cold-ion hybrid
 equations with B0 = x (|B0| = 1, n0 = 1). With b = By + i*Bz and
@@ -30,6 +39,7 @@ instead of a mix of R and L.
 */
 #pragma once
 
+#include <algorithm>
 #include <cmath>
 #include <complex> // std::complex: wave as b = By + i*Bz
 #include <cstddef>
@@ -38,6 +48,7 @@ instead of a mix of R and L.
 
 #include "boris_pusher.hpp"
 #include "grid.hpp"
+#include "shape.hpp"
 #include "vector3.hpp"
 
 constexpr double kTwoPi = 6.28318530717958647692;
@@ -45,13 +56,16 @@ constexpr double kTwoPi = 6.28318530717958647692;
 struct PopulationSettings {
     // Macroparticles per cell.
     int ppc = 0;
-    // Uniform ion density n0 (sets the macroparticle weight density/ppc).
+    // Uniform ion density n0, used when densityProfile is empty.
     double density = 1.0;
     // Thermal speed: per-component std dev of the Maxwellian, in v_A
     // (T_i = vth^2, beta_i = 2 n vth^2/|B0|^2); 0 for a cold population.
     double vth = 0.0;
     // Seed of the thermal velocity draws (same seed, same run).
     unsigned seed = 1;
+    // Initial ion density on the nx primal nodes x_i = i*dx; empty for a
+    // uniform density.
+    std::vector<double> densityProfile;
 };
 
 enum class WaveBranch { R, L };
@@ -125,13 +139,35 @@ inline Vector3 thermalVelocity(std::mt19937 &rng, double vth) {
     return Vector3{vx, vy, vz};
 }
 
-// Loads ppc protons per cell, evenly spaced, thermal plus wave velocity.
-inline std::vector<Particle1D>
-loadUniformPlasma(const PopulationSettings &population,
-                  const WaveSettings &wave, const Grid1D &grid) {
+// Initial ion density on the primal nodes: the profile if given,
+// otherwise the uniform density.
+inline Field initialDensity(const PopulationSettings &population,
+                            const Grid1D &grid) {
+    if (!population.densityProfile.empty()) {
+        return Field{Centering::Primal, population.densityProfile};
+    }
+    Field density = makeField(Centering::Primal, grid);
+    std::fill(density.values.begin(), density.values.end(), population.density);
+    return density;
+}
+
+// Smallest initial ion density: where the whistler is fastest.
+inline double minimumDensity(const PopulationSettings &population) {
+    if (population.densityProfile.empty()) {
+        return population.density;
+    }
+    return *std::min_element(population.densityProfile.begin(),
+                             population.densityProfile.end());
+}
+
+// Loads ppc protons per cell, evenly spaced, thermal plus wave velocity,
+// each weighted by the density mesh at its position.
+inline std::vector<Particle1D> loadPlasma(const PopulationSettings &population,
+                                          const WaveSettings &wave,
+                                          const Grid1D &grid) {
     std::mt19937 rng(population.seed);
     const Species proton{1.0, 1.0};
-    const double weight = population.density / population.ppc;
+    const Field density = initialDensity(population, grid);
     std::vector<Particle1D> particles;
     particles.reserve(static_cast<std::size_t>(grid.nx) * population.ppc);
     for (int cell = 0; cell < grid.nx; ++cell) {
@@ -139,6 +175,8 @@ loadUniformPlasma(const PopulationSettings &population,
             const double x = (cell + (k + 0.5) / population.ppc) * grid.dx;
             const Vector3 v = thermalVelocity(rng, population.vth) +
                               waveVelocity(x, wave, grid);
+            const double weight =
+                interpolate(density, x, grid) / population.ppc;
             particles.push_back(Particle1D{x, v, proton, weight});
         }
     }

@@ -24,6 +24,7 @@ its own group (full list in README.md), e.g.:
   ./pic_prequeijo ../examples/alfven_R.txt results.h5 /alfven_R
   ./pic_prequeijo ../examples/alfven_L.txt results.h5 /alfven_L
   ./pic_prequeijo ../examples/thermal_noise.txt results.h5 /thermal_noise
+  ./pic_prequeijo ../examples/density_sine.txt results.h5 /density_sine
 */
 
 #include <H5Cpp.h>
@@ -144,7 +145,7 @@ void printEnergies(const char *label, const HybridState &state) {
 void warnIfUnstable(const Input &input, const Grid1D &grid) {
     const HybridSettings &settings = *input.hybrid;
     const double limit =
-        timestepLimit(grid, norm(input.B), settings.population.density,
+        timestepLimit(grid, norm(input.B), minimumDensity(settings.population),
                       settings.electrons.hyperResistivity);
     if (input.dt > limit) {
         std::cerr << "warning: dt=" << input.dt << " exceeds the stability "
@@ -167,10 +168,10 @@ void warnIfSingleCorrection(const Input &input) {
 // Builds the initial hybrid state from the input settings.
 HybridState initialHybridState(const Input &input, const Grid1D &grid) {
     const HybridSettings &settings = *input.hybrid;
-    return initializeState(
-        grid, initialMagneticField(input.B, settings.wave, grid),
-        loadUniformPlasma(settings.population, settings.wave, grid),
-        settings.electrons);
+    return initializeState(grid,
+                           initialMagneticField(input.B, settings.wave, grid),
+                           loadPlasma(settings.population, settings.wave, grid),
+                           settings.electrons);
 }
 
 // Advances 'state' input.numSteps hybrid steps, taking a snapshot at

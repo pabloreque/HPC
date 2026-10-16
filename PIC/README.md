@@ -51,11 +51,17 @@ $\vec E$ is not evolved in time; it is recomputed from Ohm's law, using the ion 
 - In this Ohm's law, $\eta$ and $\nu$ act on $\vec E$, which the ions also feel, so they do not only dissipate. For cold parallel modes with $\eta' = \eta + \nu k^2$, the dispersion relation (derived below) becomes $\omega^2 + a\omega - a = 0$ with $a = k^2(1 + i\eta')$. At $k d_i = 1$ the R mode is damped ($\gamma_R = -1.17\,\eta'$) but the L mode *grows* slowly ($\gamma_L = +0.17\,\eta'$): the energy budget picks up $\eta'\!\int n\,\vec j\cdot\vec u$, which is positive when the ions move faster than the current, as in the L mode. Both rates are measured to within 1% (R) and 6% (L) in the Catch2 `[hyper]` test.
 - The term is explicit, so it does not allow a larger `dt`: it adds its own stability limit (see below). Its purpose is to clean grid-scale noise, e.g. in `thermal_noise`.
 
+**Initial ion load** (`src/loader.hpp`), in three steps:
+
+1. *Density mesh*: the initial ion density $n(x)$ is given on the primal nodes $x_i = i\,dx$, either uniform (`density=`) or node by node from a text file (`density_file=`). The loader only sees the array of node values, so a future Python front end (e.g. pybind11) can pass a NumPy array instead of a file.
+2. *Particles*: `ppc` macroparticles per cell, evenly spaced, with Maxwellian velocities (`vth`, `seed`).
+3. *Weights*: $w_p = n(x_p)/$`ppc`, with $n$ interpolated at $x_p$ by the same linear shape function as the deposit. Every cell has the same number of particles whatever its density, so the statistical noise is the same everywhere, and depositing the load gives back the density mesh (exactly for a uniform $n$, to $O((k\,dx)^2)$ otherwise, with the total charge exact). The weights never change during the run.
+
 **Moments of the distribution function on the grid** (slides 136–137, `src/shape.hpp`). Ohm's law needs the fluid quantities $n$ and $\vec u$ on the grid, but the ions are a set of macroparticles that sample $f(\vec r, \vec v)$. Each particle *deposits* its contribution on the surrounding nodes through a shape function $S$:
 
 $$n_i = \sum_p q_p\, w_p\, S(x_p - x_i), \qquad \vec u_i = \frac{1}{n_i}\sum_p q_p\, w_p\, \vec v_p\, S(x_p - x_i)$$
 
-- $w_p$ is the macroparticle **statistical weight**: how much it contributes to the local density. A uniform load of `ppc` particles per cell uses $w_p = $ `density/ppc`.
+- $w_p$ is the macroparticle **statistical weight**: how much it contributes to the local density. It is fixed at load time from the density mesh (see above); a uniform load uses $w_p = $ `density/ppc`.
 - $S$ is the order-1 B-spline, i.e. linear interpolation. A particle between $x_i$ and $x_{i+1}$ gives $\left(1 - \frac{x_p - x_i}{\Delta x}\right) w_p$ to node $i$ and $\frac{x_p - x_i}{\Delta x}\, w_p$ to node $i+1$.
 - The charge $q_p$ makes $n$ the ion *charge* density. By quasi-neutrality that is the electron density in Ohm's law. For protons ($q = 1$) it reduces to the plain number density.
 - $n$ and $\vec u$ live on primal nodes, and the indices wrap periodically: a particle near $x = L$ also deposits on node 0. An empty cell is clamped to a tiny density floor before dividing.
@@ -114,12 +120,14 @@ The $+$ root ($\omega > 0$) is the **L** wave: it rotates with the ions and satu
 **Validation** (Catch2 + `analysis_session_3.ipynb`):
 
 - Periodic folding: the periodic trajectory equals the unbounded one folded into the box.
-- Shape function: exact uniform density, charge conservation across the seam, exact interpolation of linear fields.
+- Shape function: exact uniform density, charge conservation across the seam, exact interpolation of linear fields, and a sinusoidal density mesh deposited back within $O((k\,dx)^2)$ with exact total charge and weights that follow the profile.
+- Input: density profile files are read relative to the input file, and wrong value counts, non-positive values, `density=` with `density_file=`, and a wave on a non-uniform density are rejected.
 - Field solver: second-order derivatives, Ampère/Faraday signs, Ohm's ideal, pressure and hyper-resistive terms, and a uniform equilibrium that stays exactly at rest.
 - Cold-plasma circularly polarized eigenmodes ($k d_i = 1$): measured $\omega_R = -1.6159$ (analytic $-1.6180$) and $\omega_L = 0.6184$ (analytic $0.6180$). Total energy is conserved to $\sim 10^{-10}$.
 - Hyper-resistive eigenmodes ($\nu = 0.002$): measured growth rates $\gamma_R = -0.00234$ (analytic $-0.00234$) and $\gamma_L = 0.00036$ (analytic $0.00034$).
 - Hyper-resistivity only acts at grid scale: with $\nu = 10^{-4}$ and $10^{-3}$ the R and L eigenmodes ($k d_i = 1$) keep their analytic frequency (within 0.5%) and amplitude (within 2%), while a grid-scale whistler (4 cells per wavelength, $k = 16$) drops to 1.3% of its amplitude by $t = 0.1$ with $\nu = 10^{-3}$. Without $\nu$ it keeps 83%; that 17% loss is the ICN damping, $|g|^2 = 1 - y^4/4 + y^6/16$ per step at $y = \omega\,dt \approx 0.42$, and it shrinks roughly as $dt^3$ when $dt$ is reduced (down to a ~0.5% residual).
 - Timestep limit: below the exact ICN boundary and within 20% of it for $\nu = 0.002$, $0.005$ and $0.01$.
+- ICN stability: a perturbation at the shortest grid wavelength (2 cells) decays with $dt = 0.8\times$ the limit and grows with $dt = 1.2\times$ the limit (2 corrections), and grows at any $dt$ with 1 correction, each at the analytic ICN amplification $|g|$ per step (within 5%).
 - Thermal noise: the $(k, \omega)$ spectrum of $B_y + iB_z$ follows the analytic R and L branches.
 
 ## Project layout
@@ -134,7 +142,7 @@ PIC/
 │   ├── shape.hpp               # linear shape: moment deposit, field gather
 │   ├── field_solver.hpp        # Ampere, Faraday, Ohm's law
 │   ├── hybrid_step.hpp         # ICN predictor-corrector time step
-│   ├── loader.hpp              # uniform population + eigenmode initial wave
+│   ├── loader.hpp              # ion load on a density mesh + eigenmode wave
 │   ├── parse.hpp               # value parsing helpers
 │   ├── input.hpp               # .txt parsing (test-particle / hybrid mode)
 │   ├── hybrid_input.hpp        # hybrid-mode keys and their validation
@@ -149,7 +157,9 @@ PIC/
 │   ├── periodic_drift.txt      # E×B drift along x in a periodic box
 │   ├── alfven_R.txt            # hybrid: R-mode (whistler) eigenmode
 │   ├── alfven_L.txt            # hybrid: L-mode (ion cyclotron) eigenmode
-│   └── thermal_noise.txt       # hybrid: warm plasma, dispersion from noise
+│   ├── thermal_noise.txt       # hybrid: warm plasma, dispersion from noise
+│   ├── density_sine.txt        # hybrid: density bump, ion acoustic wave
+│   └── density_sine_profile.txt # its initial density, one value per node
 ├── tests/
 │   ├── scenarios.hpp           # test fixtures + analytic references
 │   ├── test_boris_pusher.cpp   # Catch2 tests of the pusher
@@ -166,7 +176,7 @@ PIC/
 Input format (`key=value`, `#` = comment), two modes:
 
 - **Test-particle mode**: `dt`, `steps`, `E`, `B`, then per-particle `q=`, `m=`, `x=`, `v=` lines. Uniform static `E`/`B` shared by all particles. Optional `length=` makes $x$ periodic in $[0, L)$.
-- **Hybrid mode**, selected by an `nx=` line. Required: `dt`, `steps`, `B` (initial uniform $\vec B_0$), `length`, `nx`, `ppc` (protons per cell). Optional: `iterations` (ICN corrections, default 2), `output_every` (snapshot period in steps, default 1), `Te`, `eta`, `nu` (electron temperature, resistivity, hyper-resistivity; default 0), `density` (default 1), `vth` (thermal speed, default 0), `seed` (default 1), `wave_mode`, `wave_amplitude`, `wave_branch` (`R`/`L`; needs `B=1 0 0`, `density=1`). `E=` and explicit particles are rejected: $\vec E$ comes from Ohm's law.
+- **Hybrid mode**, selected by an `nx=` line. Required: `dt`, `steps`, `B` (initial uniform $\vec B_0$), `length`, `nx`, `ppc` (protons per cell). Optional: `iterations` (ICN corrections, default 2), `output_every` (snapshot period in steps, default 1), `Te`, `eta`, `nu` (electron temperature, resistivity, hyper-resistivity; default 0), `density` (uniform, default 1) or `density_file` (initial density on the $n_x$ primal nodes, one value per line, `#` comments allowed, path relative to the input file), `vth` (thermal speed, default 0), `seed` (default 1), `wave_mode`, `wave_amplitude`, `wave_branch` (`R`/`L`; needs `B=1 0 0`, `density=1` and no `density_file`). `E=` and explicit particles are rejected: $\vec E$ comes from Ohm's law.
 
 ## Build and run (C++)
 
@@ -188,6 +198,7 @@ The first configure fetches [Catch2](https://github.com/catchorg/Catch2) v3.5.4 
 ./pic_prequeijo ../examples/alfven_R.txt results.h5 /alfven_R
 ./pic_prequeijo ../examples/alfven_L.txt results.h5 /alfven_L
 ./pic_prequeijo ../examples/thermal_noise.txt results.h5 /thermal_noise
+./pic_prequeijo ../examples/density_sine.txt results.h5 /density_sine
 ```
 
 Test-particle runs print a per-particle summary and write `t`, `x`, `y`, `z`, `vx`, `vy`, `vz` per group (in `particle_N` subgroups for the multi runs). Hybrid runs print the initial/final energies and $\max|\nabla\cdot\vec B|$, and write `t`, `x_primal`, `x_dual` and one `(snapshots × nx)` dataset per grid quantity: `Ex`, `Ey`, `Ez`, `Bx`, `By`, `Bz`, `n`, `ux`, `uy`, `uz`. Each of these has a `centering` attribute (`primal`/`dual`). `thermal_noise` takes a few seconds and writes ~20 MB.
@@ -227,6 +238,7 @@ Session 3:
 - Periodic drift: $x \in [0, 4)$ always, 17 boundary crossings, folded orbit within $r_L = 0.9$ of the guiding center.
 - R/L eigenmodes: $\omega$ within ~0.1% of analytic, energy conserved to ~$10^{-10}$, $\nabla\cdot\vec B = 0$ exactly.
 - Thermal noise: spectral power on the R and L branches.
+- Density profile (`density_sine`): $n(x, 0)$ matches `density_sine_profile.txt` ($1 + 0.01\cos kx$, $k = 0.1$) within $\sim 10^{-5}$, and the density bump oscillates as a standing ion acoustic wave with $\omega = 0.0999$ (analytic $k\sqrt{T_e} = 0.1$).
 
 ## Next steps
 
