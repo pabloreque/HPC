@@ -227,6 +227,8 @@ ctest --output-on-failure
 ./pic_prequeijo_test
 ```
 
+On GitHub, every push and pull request runs the workflow `.github/workflows/pic.yml` (Actions tab): it checks the C++ formatting against `.clang-format` (clang-format 23.1.1, the version in the local `.venv`), builds the project, runs the Catch2 suite and runs every input in `examples/` end to end.
+
 ## Analysis notebooks
 
 `analysis_session_2.ipynb` reads `build/results.h5` with `h5py` and plots each Session 2 scenario against its analytic reference (including per-particle checks for the mixed-species runs). `analysis_session_3.ipynb` plots the periodic drift, the R/L eigenmodes (space-time, measured frequency, energy) and the $(k, \omega)$ spectrum of the thermal-noise run against the analytic dispersion branches.

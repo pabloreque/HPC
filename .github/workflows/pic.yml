@@ -1,0 +1,55 @@
+# Continuous integration for the PIC project: on every push and pull
+# request, check the C++ formatting, build, run the Catch2 suite and run
+# every example input end to end. Session_1 is not covered.
+name: PIC
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  format:
+    name: clang-format
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      # Same clang-format as the local .venv: formatting differs between
+      # versions, so a mismatch would report spurious violations.
+      - name: Install clang-format
+        run: pip install clang-format==23.1.1
+      - name: Check formatting (.clang-format, 80 columns)
+        run: git ls-files 'PIC/*.cpp' 'PIC/*.hpp' | xargs clang-format --dry-run --Werror
+
+  test:
+    name: build, tests and examples
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: PIC
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install HDF5 (C++ bindings)
+        run: sudo apt-get update && sudo apt-get install -y libhdf5-dev
+      - name: Configure (fetches Catch2)
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+      - name: Build
+        run: cmake --build build -j
+      - name: Run the Catch2 suite
+        working-directory: PIC/build
+        run: ctest --output-on-failure
+      # Every input file in examples/ (except data files read by another
+      # input, such as density_sine_profile.txt) must run to completion,
+      # each into its own group of one results.h5.
+      - name: Run the examples
+        working-directory: PIC/build
+        run: |
+          for input in ../examples/*.txt; do
+            name=$(basename "$input" .txt)
+            case "$name" in *_profile) continue ;; esac
+            echo "::group::$name"
+            ./pic_prequeijo "$input" results.h5 "/$name"
+            echo "::endgroup::"
+          done
