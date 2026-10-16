@@ -18,14 +18,7 @@ Two scenarios (see `examples/` and `tests/scenarios.hpp`):
 - **`cyclotron`**: $\vec E = 0$ → circular gyration.
 - **`drift`**: $\vec E = (0.1,0,0)$ → gyration plus E×B drift.
 
-Correctness is checked three ways (speed conservation, cyclotron circle, E×B drift) by the Catch2 suite and visualized in the notebook, plus per-particle checks for fixed-seed mixed species.
-
-Since $q = m = |\vec B| = v_0 = 1$ would hide a wrong formula (e.g. $m/qB$ instead of $qB/m$), the gyration is also tested for a proton, an alpha particle ($q = 2$, $m = 4$) and a light negative charge ($q = -1$, $m = 0.05$) on a helical orbit in an oblique field $|\vec B| = 2$:
-- the gyrophase turns at the signed frequency $-q|\vec B|/m$ (within $10^{-5}$): ions turn clockwise seen from the tip of $\vec B$, negative charges anticlockwise;
-- the distance to the analytic guiding center, which moves along $\vec B$ at constant $v_\parallel$, stays at $r_L = m v_\perp/(|q||\vec B|)$;
-- the orbit's angular momentum about that center is $-\mathrm{sign}(q)\,r_L v_\perp$ along $\vec B$, so its current loop always weakens $\vec B$ (diamagnetism).
-
-Each check was confirmed to fail when the pusher's rotation is reversed or the mass is dropped from $q/m$.
+The Catch2 suite checks the pusher against these closed-form solutions and against further species and field geometries; see [TESTS.md](TESTS.md).
 
 ## Session 3: hybrid PIC and periodic boundaries
 
@@ -55,7 +48,7 @@ $\vec E$ is not evolved in time; it is recomputed from Ohm's law, using the ion 
 
 **Hyper-resistivity** (`nu`, the $-\nu\nabla^2\nabla\times\vec B$ term of the course's ICN slide, slide 167). In Faraday's law it becomes $-\nu\nabla^4\vec B$, a dissipation rate $\sim\nu k^4$ that removes grid-scale whistlers while barely touching long wavelengths ($\eta$ acts as $\eta k^2$). In 1D, $\nabla^2\vec j = \partial_x^2\vec j$ is the three-point stencil obtained by applying the Yee derivative twice (primal → dual → primal). Two caveats:
 
-- In this Ohm's law, $\eta$ and $\nu$ act on $\vec E$, which the ions also feel, so they do not only dissipate. For cold parallel modes with $\eta' = \eta + \nu k^2$, the dispersion relation (derived below) becomes $\omega^2 + a\omega - a = 0$ with $a = k^2(1 + i\eta')$. At $k d_i = 1$ the R mode is damped ($\gamma_R = -1.17\,\eta'$) but the L mode *grows* slowly ($\gamma_L = +0.17\,\eta'$): the energy budget picks up $\eta'\!\int n\,\vec j\cdot\vec u$, which is positive when the ions move faster than the current, as in the L mode. Both rates are measured to within 1% (R) and 6% (L) in the Catch2 `[hyper]` test.
+- In this Ohm's law, $\eta$ and $\nu$ act on $\vec E$, which the ions also feel, so they do not only dissipate. For cold parallel modes with $\eta' = \eta + \nu k^2$, the dispersion relation (derived below) becomes $\omega^2 + a\omega - a = 0$ with $a = k^2(1 + i\eta')$. At $k d_i = 1$ the R mode is damped ($\gamma_R = -1.17\,\eta'$) but the L mode *grows* slowly ($\gamma_L = +0.17\,\eta'$): the energy budget picks up $\eta'\!\int n\,\vec j\cdot\vec u$, which is positive when the ions move faster than the current, as in the L mode. Both rates are reproduced by the `[hyper]` test ([TESTS.md](TESTS.md)).
 - The term is explicit, so it does not allow a larger `dt`: it adds its own stability limit (see below). Its purpose is to clean grid-scale noise, e.g. in `thermal_noise`.
 
 **Initial ion load** (`src/loader.hpp`), in three steps:
@@ -76,7 +69,7 @@ $$n_i = \sum_p q_p\, w_p\, S(x_p - x_i), \qquad \vec u_i = \frac{1}{n_i}\sum_p q
 - $n$ and $\vec u$ live on primal nodes, and the indices wrap periodically: a particle near $x = L$ also deposits on node 0. An empty cell is clamped to a tiny density floor before dividing.
 - The same weights do the reverse operation, interpolating $\vec E$ and $\vec B$ from the grid to each particle at its mid-step position $\vec r^{n+1/2}$ (slide 147). Each field component is interpolated from its own primal or dual centering.
 
-Tested in `tests/test_shape.cpp`: a uniform load gives exactly $n = n_0$ on every node, the total charge is conserved across the periodic seam, and linear fields are interpolated exactly. The moments are saved as `n`, `ux`, `uy`, `uz` in `results.h5`.
+The moments are saved as `n`, `ux`, `uy`, `uz` in `results.h5`.
 
 **Ion temperature** (diagnostic, `depositTemperature` in `src/shape.hpp`): the second moment $T_i = \langle m\,|\vec v - \vec u|^2\rangle / 3$ on the primal nodes, computed from the deposited sums of $w$, $w m$, $w m\vec v$ and $w m |\vec v|^2$, with $\vec u$ the mass-weighted bulk velocity. A Maxwellian of per-component spread $v_{th}$ gives $T_i = m v_{th}^2$. Ohm's law does not need it, so it is only computed at output times and saved as `Ti`.
 
@@ -94,14 +87,9 @@ repeat `iterations` times:
 commit
 ```
 
-Measured convergence of $B$ at fixed $t$ against a $dt/16$ reference (Catch2 `[convergence]`):
+With 2 corrections the scheme is second order in $dt$, with 1 correction only first order (measured by the `[convergence]` test, [TESTS.md](TESTS.md)).
 
-| corrections | error ratio $e(dt)/e(dt/2)$ | order |
-|---|---|---|
-| 1 | 2.0 | 1 |
-| 2 (default) | 4.00 | 2 |
-
-Stability: the fastest grid mode, $k = 2/dx$, oscillates as a whistler ($\omega \approx k^2 |B_0|/n$) and decays by hyper-resistivity (rate $\nu k^4$). With 2 corrections the ICN amplification factor is $g(z) = 1 - z + z^2/2 - z^3/4$, $z = dt\,(\nu k^4 + i\omega)$, and $|g| \le 1$ holds up to $|z| = 2$ on the imaginary axis but only $|z| \approx 1.77$ in between. The driver therefore warns when $dt > r/|\nu k^4 + i\omega|$, with $r = 2$ for $\nu = 0$ (i.e. $dt < n\,dx^2/(2|B_0|)$) and $r = 1.75$ otherwise (`timestepLimit`, within 20% of the exact boundary). With $dx = 2\pi/64$: for $\nu = 0$ the runs blow up between $dt = 0.004$ and $0.005$, as predicted (limit $0.0048$); with $\nu = 0.005$ the limit drops to $0.0018$, and the `alfven_R` setup ($dt = 0.002$) blows up once `nu=0.005` is added. A naive pure-diffusion estimate $dt < dx^4/(8\nu) = 0.0023$ would miss this.
+Stability: the fastest grid mode, $k = 2/dx$, oscillates as a whistler ($\omega \approx k^2 |B_0|/n$) and decays by hyper-resistivity (rate $\nu k^4$). With 2 corrections the ICN amplification factor is $g(z) = 1 - z + z^2/2 - z^3/4$, $z = dt\,(\nu k^4 + i\omega)$, and $|g| \le 1$ holds up to $|z| = 2$ on the imaginary axis but only $|z| \approx 1.77$ in between. The driver therefore warns when $dt > r/|\nu k^4 + i\omega|$, with $r = 2$ for $\nu = 0$ (i.e. $dt < n\,dx^2/(2|B_0|)$) and $r = 1.75$ otherwise (`timestepLimit`, at most 12.5% below the exact boundary). With $dx = 2\pi/64$: for $\nu = 0$ the runs blow up between $dt = 0.004$ and $0.005$, as predicted (limit $0.0048$); with $\nu = 0.005$ the limit drops to $0.0018$, and the `alfven_R` setup ($dt = 0.002$) blows up once `nu=0.005` is added. A naive pure-diffusion estimate $dt < dx^4/(8\nu) = 0.0023$ would miss this.
 
 Why 2 corrections: each correction pushes and deposits every particle again, so with many particles per cell the cost of a step is roughly proportional to `iterations`, and a third correction costs about 50% more. The extra cost buys little, because the corrections converge to the Crank–Nicolson solution, which already has an $O(dt^2)$ error. Two corrections reach that order, and more do not raise it. For a pure oscillation of the field equation alone ($z = i y$, $y = \omega\,dt$, as for a grid-scale whistler), the corrections change $|g|^2$ as follows:
 
@@ -128,19 +116,7 @@ $$\omega^2 + k^2\omega - k^2 = 0 \quad\Rightarrow\quad \omega = \frac{k^2}{2}\le
 
 The $+$ root ($\omega > 0$) is the **L** wave: it rotates with the ions and saturates at the ion cyclotron frequency, $\omega \to \Omega_{ci} = 1$ as $k\to\infty$. The $-$ root ($\omega < 0$) is the **R** wave or whistler: it rotates with the electrons and grows as $\omega \approx -k^2$, because the electron resonance $\Omega_{ce}$ is infinite for massless electrons. For $k d_i \ll 1$ both reduce to the Alfvén wave, $|\omega| = k$. At $k d_i = 1$, $\omega_L = (\sqrt5 - 1)/2 = 0.618$ and $\omega_R = -(\sqrt5 + 1)/2 = -1.618$. Adding a dissipative term $\eta' j$ to Ohm's law (step 4) replaces $k^2$ by $a = k^2(1 + i\eta')$, which gives the hyper-resistive rates above.
 
-**Validation** (Catch2 + `analysis_session_3.ipynb`):
-
-- Periodic folding: the periodic trajectory equals the unbounded one folded into the box.
-- Shape function: exact uniform density, charge conservation across the seam, exact interpolation of linear fields.
-- Initial load (`tests/test_loader.cpp`), against analytic profiles $n = 1 + 0.5\sin kx$, $\vec u = (0.1\cos kx,\ 0.3\sin kx,\ -0.2\cos kx)$, $v_{th} = 0.1(1 + 0.5\cos kx)$ sampled on the mesh: a cold load deposits $n$ and $\vec u$ back within $5\times10^{-3}$ on 32 cells and the error drops by 4 when $dx$ is halved (second order); weights follow the density and the total charge is exact; a warm load (4000 particles per cell) recovers $n$, $\vec u$ and $\sqrt{T_i} = v_{th}$ within the deterministic smoothing plus about 5 standard deviations of the sampling noise.
-- Input: profile files are read relative to the input file, with any subset of columns; unknown or repeated columns, rows of the wrong length, a wrong number of rows, $n \le 0$, $v_{th} < 0$, a column together with its uniform key (`density=`, `vth=`), and a wave with a profile file are rejected.
-- Field solver: second-order derivatives, Ampère/Faraday signs, Ohm's ideal, pressure and hyper-resistive terms, and a uniform equilibrium that stays exactly at rest.
-- Cold-plasma circularly polarized eigenmodes ($k d_i = 1$): measured $\omega_R = -1.6159$ (analytic $-1.6180$) and $\omega_L = 0.6184$ (analytic $0.6180$). Total energy is conserved to $\sim 10^{-10}$.
-- Hyper-resistive eigenmodes ($\nu = 0.002$): measured growth rates $\gamma_R = -0.00234$ (analytic $-0.00234$) and $\gamma_L = 0.00036$ (analytic $0.00034$).
-- Hyper-resistivity only acts at grid scale: with $\nu = 10^{-4}$ and $10^{-3}$ the R and L eigenmodes ($k d_i = 1$) keep their analytic frequency (within 0.5%) and amplitude (within 2%), while a grid-scale whistler (4 cells per wavelength, $k = 16$) drops to 1.3% of its amplitude by $t = 0.1$ with $\nu = 10^{-3}$. Without $\nu$ it keeps 83%; that 17% loss is the ICN damping, $|g|^2 = 1 - y^4/4 + y^6/16$ per step at $y = \omega\,dt \approx 0.42$, and it shrinks roughly as $dt^3$ when $dt$ is reduced (down to a ~0.5% residual).
-- Timestep limit: below the exact ICN boundary and within 20% of it for $\nu = 0.002$, $0.005$ and $0.01$.
-- ICN stability: a perturbation at the shortest grid wavelength (2 cells) decays with $dt = 0.8\times$ the limit and grows with $dt = 1.2\times$ the limit (2 corrections), and grows at any $dt$ with 1 correction, each at the analytic ICN amplification $|g|$ per step (within 5%).
-- Thermal noise: the $(k, \omega)$ spectrum of $B_y + iB_z$ follows the analytic R and L branches.
+**Validation.** The Catch2 suite checks each part (periodic folding, shape function, initial load, input, field solver, eigenmodes, hyper-resistivity, ICN order and stability) against an analytic reference; [TESTS.md](TESTS.md) gives the physics and the tolerance of each test. `analysis_session_3.ipynb` shows the same comparisons as plots.
 
 ## Project layout
 
@@ -175,6 +151,7 @@ PIC/
 │   └── density_sine_profile.txt # its initial density, one value per node
 ├── tests/
 │   ├── scenarios.hpp           # test fixtures + analytic references
+│   ├── tolerances.hpp          # shared error model of the tolerances
 │   ├── test_boris_pusher.cpp   # Catch2 tests of the pusher
 │   ├── test_input.cpp          # Catch2 tests of the .txt input parser
 │   ├── test_periodic.cpp       # periodic wrap and folded trajectories
@@ -184,6 +161,7 @@ PIC/
 │   └── test_hybrid_step.cpp    # eigenmodes, hyper-resistivity, ICN order
 ├── analysis_session_2.ipynb    # Session 2: trajectories vs analytic references
 ├── analysis_session_3.ipynb    # Session 3: periodic drift, eigenmodes, dispersion
+├── TESTS.md                    # physics and tolerance of every test
 └── README.md
 ```
 
@@ -226,6 +204,8 @@ ctest --output-on-failure
 # or directly:
 ./pic_prequeijo_test
 ```
+
+What each test checks and why its tolerance is what it is: [TESTS.md](TESTS.md).
 
 On GitHub, every push and pull request runs the workflow `.github/workflows/pic.yml` (Actions tab): it checks the C++ formatting against `.clang-format` (clang-format 23.1.1, the version in the local `.venv`), builds the project, runs the Catch2 suite and runs every input in `examples/` end to end.
 

@@ -141,16 +141,22 @@ inline FieldSnapshot takeSnapshot(const HybridState &state, double time) {
                          depositTemperature(state.particles, state.grid)};
 }
 
+// Radius of the ICN (2 corrections) stability region |g(z)| <= 1 on the
+// imaginary axis, i.e. for a pure oscillation z = i omega dt.
+constexpr double kIcnOscillationRadius = 2.0;
+// Smallest radius of that region between the imaginary and the positive
+// real axis (damped oscillations), about 1.77, rounded down.
+constexpr double kIcnMinimumRadius = 1.75;
+
 // Approximate ICN (2 corrections) stability limit. The fastest grid mode,
 // k = 2/dx, oscillates as a whistler (omega ~ k^2 |B0|/n) and decays by
 // hyper-resistivity (rate nu k^4); dt*|nu k^4 + i omega| must stay inside
-// the ICN stability region, of radius 2 on the imaginary axis (nu = 0:
-// dt < n dx^2/(2|B0|)) and of radius >= 1.75 elsewhere.
+// the ICN stability region (nu = 0: dt < n dx^2/(2|B0|)).
 inline double timestepLimit(const Grid1D &grid, double B0, double density,
                             double nu) {
     const double k2 = 4.0 / (grid.dx * grid.dx);
     const double omega = k2 * B0 / density;
     const double decay = nu * k2 * k2;
-    const double radius = nu > 0.0 ? 1.75 : 2.0;
+    const double radius = nu > 0.0 ? kIcnMinimumRadius : kIcnOscillationRadius;
     return radius / std::hypot(omega, decay);
 }

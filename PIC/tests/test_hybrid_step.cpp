@@ -6,7 +6,8 @@ against the analytic dispersion relation of parallel circularly
 polarized waves (ideal and hyper-resistive), plus the convergence order
 and the stability of the ICN scheme: a grid-scale perturbation must decay
 below the timestep limit and grow above it (or at any dt with a single
-correction), at the analytic ICN rate.
+correction), at the analytic ICN rate. TESTS.md gives the physics behind
+each check and the origin of each tolerance.
 */
 
 #include <catch2/catch_approx.hpp>
@@ -15,16 +16,23 @@ correction), at the analytic ICN rate.
 #include <cmath>
 #include <complex>
 #include <cstddef>
+#include <limits>
 #include <utility>
 
 #include "hybrid_step.hpp"
 #include "loader.hpp"
 #include "scenarios.hpp"
+#include "tolerances.hpp"
 
 namespace {
 
-// Wavenumber of a grid-scale wave: 4 cells per wavelength on 64 cells
-// spanning 2 pi.
+// Grid of every wave test: 64 cells spanning 2 pi (one wavelength of the
+// k d_i = 1 eigenmodes).
+constexpr int kWaveCells = 64;
+constexpr double kWaveDx = 2.0 * kPi / kWaveCells;
+// Timestep of the wave tests, well below the timestep limit (0.0048).
+constexpr double kWaveDt = 0.002;
+// Wavenumber of a grid-scale wave: 4 cells per wavelength.
 constexpr double kGridScaleK = 16.0;
 // Shortest wave of the same grid, 2 cells per wavelength: the fastest
 // whistler, which sets the timestep limit.
@@ -32,6 +40,56 @@ constexpr double kNyquistK = 32.0;
 // Steps of the Nyquist stability runs: enough to separate growth from
 // decay by orders of magnitude, few enough to stay linear (no overflow).
 constexpr int kStabilitySteps = 10;
+// Duration of the grid-scale damping runs.
+constexpr double kGridScaleDuration = 0.1;
+// Duration of the growth-rate fits, about 3 periods of the L mode.
+constexpr double kGrowthDuration = 20.0;
+// Coarse timestep and grid of the convergence runs, and refinement of
+// their reference run.
+constexpr double kConvergenceDt = 0.004;
+constexpr int kConvergenceCells = 32;
+constexpr double kReferenceRefinement = 16.0;
+// Operations of the closed-form waveFrequency, rounded up.
+constexpr double kDispersionOperations = 10.0;
+
+// Relative error of a computed eigenfrequency at wavenumber k: the Yee
+// curl, applied twice, changes k^2 by (k dx)^2/12, and the linear shape
+// smooths the ion response by (k dx)^2/12 in each of the gather and the
+// deposit; |d ln omega / d ln k^2| <= 1 carries these to omega.
+double dispersionError(double k, double dx) {
+    return (k * dx) * (k * dx) / 4.0;
+}
+
+// Wavenumber k as seen by the Yee curl on spacing dx: the centered
+// difference of exp(ikx) gives i (2/dx) sin(k dx/2).
+double yeeWavenumber(double k, double dx) {
+    return 2.0 / dx * std::sin(0.5 * k * dx);
+}
+
+// ICN amplification factor per step of db/dt = -lambda b, z = lambda dt:
+// 1 - z + z^2/2 with 1 correction, minus z^3/4 with 2.
+std::complex<double> icnFactor(std::complex<double> z, int iterations) {
+    const std::complex<double> g = 1.0 - z + 0.5 * z * z;
+    return iterations == 1 ? g : g - 0.25 * z * z * z;
+}
+
+// Analytic amplitude ratio of a pure whistler (B0 = n = 1) of Yee
+// wavenumber kEff after 'steps' ICN steps: it oscillates at kEff^2 and
+// decays by hyper-resistivity at nu kEff^4.
+double whistlerAmplification(double kEff, double nu, double dt, int iterations,
+                             int steps) {
+    const double k2 = kEff * kEff;
+    const std::complex<double> lambda{nu * k2 * k2, k2};
+    return std::pow(std::abs(icnFactor(lambda * dt, iterations)), steps);
+}
+
+// Allowed |ln(measured/expected)| of a whistler amplitude after 'steps'
+// steps: the analytic factor treats the pure whistler, while the ions
+// carry a fraction 1/(k d_i)^2 of its response, which can change ln|b|
+// by that much per step.
+double ionResponseTolerance(int steps, double kEff) {
+    return kSafetyFactor * steps / (kEff * kEff);
+}
 
 // Fourier amplitude of b = By + i*Bz at wavenumber k (dual nodes).
 std::complex<double> modeAmplitude(const VecField &B, const Grid1D &grid,
@@ -48,6 +106,7 @@ std::complex<double> modeAmplitude(const VecField &B, const Grid1D &grid,
 struct WaveMeasurement {
     double omega;
     double amplitudeRatio;
+    double duration;
 };
 
 // Runs a wave scenario for 'periods' analytic periods and measures its
@@ -68,8 +127,9 @@ WaveMeasurement measureWave(HybridScenario &scenario, double periods) {
         phase += std::arg(current / previous);
         previous = current;
     }
-    return WaveMeasurement{-phase / (steps * scenario.params.dt),
-                           std::abs(previous) / std::abs(initial)};
+    const double duration = steps * scenario.params.dt;
+    return WaveMeasurement{-phase / duration,
+                           std::abs(previous) / std::abs(initial), duration};
 }
 
 // Growth rate of the mode amplitude over 'duration': least-squares slope
@@ -110,8 +170,25 @@ double hyperResistiveGrowthRate(WaveBranch branch, double nu) {
     ElectronModel electrons;
     electrons.hyperResistivity = nu;
     HybridScenario scenario =
-        waveScenario(branch, 64, 0.002, 2, 0.01, electrons);
-    return measureGrowthRate(scenario, 20.0);
+        waveScenario(branch, kWaveCells, kWaveDt, 2, 0.01, electrons);
+    return measureGrowthRate(scenario, kGrowthDuration);
+}
+
+// Allowed error of a growth rate 'gamma' fitted over kGrowthDuration at
+// k d_i = 1 with effective resistivity etaPrime. The ideal initial
+// eigenvector misses the discrete dissipative one by a relative
+// dispersionError + eta', which excites the other branch with that
+// relative amplitude; a least-squares line through a beat of amplitude
+// A and frequency W over a time T has a slope of at most 12 A / (W T^2).
+// The discretization adds dispersionError to gamma itself.
+double growthRateTolerance(double gamma, double etaPrime) {
+    const double discretization = dispersionError(1.0, kWaveDx);
+    const double beatFrequency =
+        waveFrequency(1.0, WaveBranch::L) - waveFrequency(1.0, WaveBranch::R);
+    const double beatingBias =
+        12.0 * (discretization + etaPrime) /
+        (beatFrequency * kGrowthDuration * kGrowthDuration);
+    return kSafetyFactor * (beatingBias + discretization * std::fabs(gamma));
 }
 
 // Largest |By|, |Bz| difference between two magnetic fields.
@@ -128,7 +205,7 @@ double maxDifference(const VecField &a, const VecField &b) {
 // of ICN corrections (coarse grid, larger amplitude: time error dominates).
 VecField finalField(double dt, int iterations) {
     HybridScenario scenario =
-        waveScenario(WaveBranch::R, 32, dt, iterations, 0.05);
+        waveScenario(WaveBranch::R, kConvergenceCells, dt, iterations, 0.05);
     const int steps = static_cast<int>(std::lround(2.0 / dt));
     for (int step = 0; step < steps; ++step) {
         hybridStep(scenario.state, scenario.params);
@@ -136,12 +213,23 @@ VecField finalField(double dt, int iterations) {
     return scenario.state.B;
 }
 
-// Error ratio e(dt)/e(dt/2) against a dt/16 reference: ~2^order.
+// Error ratio e(dt)/e(dt/2) against a dt/kReferenceRefinement reference.
 double convergenceRatio(int iterations) {
-    const double dt = 0.004;
-    const VecField reference = finalField(dt / 16.0, iterations);
-    return maxDifference(finalField(dt, iterations), reference) /
-           maxDifference(finalField(dt / 2.0, iterations), reference);
+    const VecField reference =
+        finalField(kConvergenceDt / kReferenceRefinement, iterations);
+    return maxDifference(finalField(kConvergenceDt, iterations), reference) /
+           maxDifference(finalField(kConvergenceDt / 2.0, iterations),
+                         reference);
+}
+
+// Checks that ICN with 'iterations' corrections converges at 'order':
+// the next-order terms are smaller by omega dt.
+void checkConvergenceOrder(int iterations, int order) {
+    const double omegaDt =
+        std::fabs(waveFrequency(1.0, WaveBranch::R)) * kConvergenceDt;
+    REQUIRE(convergenceRatio(iterations) ==
+            Catch::Approx(expectedConvergenceRatio(order, kReferenceRefinement))
+                .margin(convergenceRatioTolerance(order, omegaDt)));
 }
 
 // Adds a circularly polarized perturbation b = amplitude exp(i k x) to
@@ -156,13 +244,10 @@ void addCircularPerturbation(VecField &B, const Grid1D &grid, double k,
     }
 }
 
-// Ratio |b_k(t)| / |b_k(0)| of the mode k after running for 'duration'.
-double amplitudeRatioAfter(HybridScenario &scenario, double k,
-                           double duration) {
+// Ratio |b_k(t)| / |b_k(0)| of the mode k after 'steps' steps.
+double amplitudeRatioAfter(HybridScenario &scenario, double k, int steps) {
     HybridState &state = scenario.state;
     const std::complex<double> initial = modeAmplitude(state.B, state.grid, k);
-    const int steps =
-        static_cast<int>(std::lround(duration / scenario.params.dt));
     for (int step = 0; step < steps; ++step) {
         hybridStep(state, scenario.params);
     }
@@ -172,8 +257,9 @@ double amplitudeRatioAfter(HybridScenario &scenario, double k,
 // Cold uniform plasma in B0 = x on 64 cells whose only perturbation is a
 // small magnetic wave of wavenumber k, advanced with 'params'.
 HybridScenario perturbedScenario(const HybridParameters &params, double k) {
-    HybridScenario scenario = waveScenario(
-        WaveBranch::R, 64, params.dt, params.iterations, 0.0, params.electrons);
+    HybridScenario scenario =
+        waveScenario(WaveBranch::R, kWaveCells, params.dt, params.iterations,
+                     0.0, params.electrons);
     HybridState &state = scenario.state;
     VecField B = state.B;
     addCircularPerturbation(B, state.grid, k, 1e-3);
@@ -182,56 +268,82 @@ HybridScenario perturbedScenario(const HybridParameters &params, double k) {
     return scenario;
 }
 
-// Grid-scale perturbation, 4 cells per wavelength, with hyper-resistivity
-// 'nu' and the default dt = 0.002.
-HybridScenario gridScaleScenario(double nu) {
+// Checks that a grid-scale perturbation (4 cells per wavelength) with
+// hyper-resistivity 'nu' keeps the analytic amplitude of the pure
+// whistler after kGridScaleDuration.
+void checkGridScaleAmplification(double nu) {
     ElectronModel electrons;
     electrons.hyperResistivity = nu;
-    return perturbedScenario(HybridParameters{0.002, 2, electrons},
-                             kGridScaleK);
+    HybridScenario scenario =
+        perturbedScenario(HybridParameters{kWaveDt, 2, electrons}, kGridScaleK);
+    const int steps =
+        static_cast<int>(std::lround(kGridScaleDuration / kWaveDt));
+    const double kEff = yeeWavenumber(kGridScaleK, kWaveDx);
+    const double measured = amplitudeRatioAfter(scenario, kGridScaleK, steps);
+    const double expected = whistlerAmplification(kEff, nu, kWaveDt, 2, steps);
+    REQUIRE(std::log(measured / expected) ==
+            Catch::Approx(0.0).margin(ionResponseTolerance(steps, kEff)));
 }
 
-// Measured ratio |b(t)| / |b(0)| of a Nyquist-scale perturbation after
-// kStabilitySteps steps of dt = fraction * timestepLimit, ideal electrons.
-double nyquistAmplification(double fraction, int iterations) {
-    const Grid1D grid = makeGrid(64, 2.0 * kPi);
+// Checks the amplitude ratio of a Nyquist-scale perturbation after
+// kStabilitySteps steps of dt = fraction * timestepLimit (ideal
+// electrons) against the analytic ICN amplification, and returns it.
+double checkNyquistAmplification(double fraction, int iterations) {
+    const Grid1D grid = makeGrid(kWaveCells, 2.0 * kPi);
     const double dt = fraction * timestepLimit(grid, kB0, 1.0, 0.0);
     HybridScenario scenario =
         perturbedScenario(HybridParameters{dt, iterations, {}}, kNyquistK);
-    return amplitudeRatioAfter(scenario, kNyquistK, kStabilitySteps * dt);
+    // At 2 cells per wavelength the Yee wavenumber is 2/dx.
+    const double kEff = yeeWavenumber(kNyquistK, grid.dx);
+    const double measured =
+        amplitudeRatioAfter(scenario, kNyquistK, kStabilitySteps);
+    const double expected =
+        whistlerAmplification(kEff, 0.0, dt, iterations, kStabilitySteps);
+    REQUIRE(
+        std::log(measured / expected) ==
+        Catch::Approx(0.0).margin(ionResponseTolerance(kStabilitySteps, kEff)));
+    return measured;
 }
 
-// Analytic ICN amplification |g| per step of an oscillation at y = omega dt:
-// |g|^2 = 1 + y^4/4 with 1 correction, 1 - y^4/4 + y^6/16 with 2.
-double icnAmplification(double y, int iterations) {
-    const double y4 = std::pow(y, 4);
-    const double gainSquared = iterations == 1
-                                   ? 1.0 + y4 / 4.0
-                                   : 1.0 - y4 / 4.0 + std::pow(y, 6) / 16.0;
-    return std::sqrt(gainSquared);
-}
-
-// Analytic amplification after kStabilitySteps at dt = fraction * limit.
-// With nu = 0 the limit is 2/omega of the Nyquist whistler, so
-// y = omega dt = 2 * fraction.
-double expectedNyquistAmplification(double fraction, int iterations) {
-    return std::pow(icnAmplification(2.0 * fraction, iterations),
-                    kStabilitySteps);
+// Exact ICN (2 corrections) stability limit of the Nyquist whistler on
+// 'grid' with hyper-resistivity nu: the dt at which |g| reaches 1, found
+// by bisection down to double precision.
+double exactStabilityLimit(const Grid1D &grid, double nu) {
+    const double k2 = 4.0 / (grid.dx * grid.dx);
+    const std::complex<double> lambda{nu * k2 * k2, k2};
+    // |g| <= 1 for small dt, and |g| >= 1 once |z| reaches the largest
+    // radius of the stability region.
+    double stable = 0.0;
+    double unstable = kIcnOscillationRadius / std::abs(lambda);
+    for (int i = 0; i < std::numeric_limits<double>::digits; ++i) {
+        const double middle = 0.5 * (stable + unstable);
+        if (std::abs(icnFactor(lambda * middle, 2)) <= 1.0) {
+            stable = middle;
+        } else {
+            unstable = middle;
+        }
+    }
+    return stable;
 }
 
 } // namespace
 
 TEST_CASE("The R-mode (whistler) eigenmode has the analytic frequency",
           "[hybrid][wave]") {
-    HybridScenario scenario = waveScenario(WaveBranch::R, 64, 0.002);
+    HybridScenario scenario = waveScenario(WaveBranch::R, kWaveCells, kWaveDt);
     const double k = waveNumber(scenario.wave, scenario.state.grid);
+    const double omega = waveFrequency(k, WaveBranch::R);
     const WaveMeasurement measured = measureWave(scenario, 3.0);
     // k d_i = 1: omega = -(1 + sqrt 5)/2.
-    REQUIRE(waveFrequency(k, WaveBranch::R) ==
-            Catch::Approx(-(1.0 + std::sqrt(5.0)) / 2.0));
-    REQUIRE(measured.omega ==
-            Catch::Approx(waveFrequency(k, WaveBranch::R)).epsilon(5e-3));
-    REQUIRE(measured.amplitudeRatio == Catch::Approx(1.0).epsilon(1e-3));
+    REQUIRE(omega == Catch::Approx(-(1.0 + std::sqrt(5.0)) / 2.0)
+                         .margin(roundoffTolerance(kDispersionOperations,
+                                                   std::fabs(omega))));
+    const double tolerance = kSafetyFactor * dispersionError(k, kWaveDx);
+    REQUIRE(measured.omega == Catch::Approx(omega).epsilon(tolerance));
+    // Ideal electrons: no damping. The amplitude only beats with the
+    // other branch, excited because the loaded (continuous) eigenvector
+    // misses the discrete one by dispersionError.
+    REQUIRE(measured.amplitudeRatio == Catch::Approx(1.0).margin(tolerance));
     for (const Particle1D &p : scenario.state.particles) {
         REQUIRE(p.position >= 0.0);
         REQUIRE(p.position < scenario.state.grid.length);
@@ -240,21 +352,23 @@ TEST_CASE("The R-mode (whistler) eigenmode has the analytic frequency",
 
 TEST_CASE("The L-mode (ion cyclotron) eigenmode has the analytic frequency",
           "[hybrid][wave]") {
-    HybridScenario scenario = waveScenario(WaveBranch::L, 64, 0.002);
+    HybridScenario scenario = waveScenario(WaveBranch::L, kWaveCells, kWaveDt);
     const double k = waveNumber(scenario.wave, scenario.state.grid);
+    const double omega = waveFrequency(k, WaveBranch::L);
     const WaveMeasurement measured = measureWave(scenario, 2.0);
     // k d_i = 1: omega = (sqrt 5 - 1)/2.
-    REQUIRE(waveFrequency(k, WaveBranch::L) ==
-            Catch::Approx((std::sqrt(5.0) - 1.0) / 2.0));
-    REQUIRE(measured.omega ==
-            Catch::Approx(waveFrequency(k, WaveBranch::L)).epsilon(5e-3));
-    REQUIRE(measured.amplitudeRatio == Catch::Approx(1.0).epsilon(1e-3));
+    REQUIRE(omega == Catch::Approx((std::sqrt(5.0) - 1.0) / 2.0)
+                         .margin(roundoffTolerance(kDispersionOperations,
+                                                   std::fabs(omega))));
+    const double tolerance = kSafetyFactor * dispersionError(k, kWaveDx);
+    REQUIRE(measured.omega == Catch::Approx(omega).epsilon(tolerance));
+    REQUIRE(measured.amplitudeRatio == Catch::Approx(1.0).margin(tolerance));
 }
 
 TEST_CASE("ICN is second order with 2 corrections, first order with 1",
           "[hybrid][convergence]") {
-    REQUIRE(convergenceRatio(2) == Catch::Approx(4.0).margin(0.3));
-    REQUIRE(convergenceRatio(1) == Catch::Approx(2.0).margin(0.3));
+    checkConvergenceOrder(2, 2);
+    checkConvergenceOrder(1, 1);
 }
 
 TEST_CASE("Hyper-resistivity damps the R mode and drives the L mode at the "
@@ -267,30 +381,38 @@ TEST_CASE("Hyper-resistivity damps the R mode and drives the L mode at the "
     REQUIRE(gammaR < 0.0);
     REQUIRE(gammaL > 0.0);
     REQUIRE(hyperResistiveGrowthRate(WaveBranch::R, nu) ==
-            Catch::Approx(gammaR).epsilon(0.02));
+            Catch::Approx(gammaR).margin(growthRateTolerance(gammaR, nu)));
     REQUIRE(hyperResistiveGrowthRate(WaveBranch::L, nu) ==
-            Catch::Approx(gammaL).epsilon(0.15));
+            Catch::Approx(gammaL).margin(growthRateTolerance(gammaL, nu)));
 }
 
 TEST_CASE("The timestep limit matches the ICN stability boundary",
           "[hybrid][stability]") {
-    const Grid1D grid = makeGrid(64, 2.0 * kPi);
-    // nu = 0: the classic whistler limit n dx^2 / (2|B0|).
+    const Grid1D grid = makeGrid(kWaveCells, 2.0 * kPi);
+    // nu = 0: the classic whistler limit n dx^2 / (2|B0|), which is the
+    // exact boundary.
+    const double whistlerLimit = grid.dx * grid.dx / 2.0;
+    const double roundoff =
+        roundoffTolerance(kDispersionOperations, whistlerLimit);
     REQUIRE(timestepLimit(grid, 1.0, 1.0, 0.0) ==
-            Catch::Approx(grid.dx * grid.dx / 2.0));
-    // Exact ICN boundaries for this grid, from |g(dt (nu k^4 + i k^2))| = 1:
-    // the estimate stays below them by less than 20 %.
-    for (const auto &[nu, exact] :
-         {std::pair{0.002, 0.00339}, std::pair{0.005, 0.00193},
-          std::pair{0.01, 0.00110}}) {
+            Catch::Approx(whistlerLimit).margin(roundoff));
+    REQUIRE(exactStabilityLimit(grid, 0.0) ==
+            Catch::Approx(whistlerLimit).margin(roundoff));
+    // With nu > 0 the boundary radius along the ray of nu k^4 + i omega
+    // lies between kIcnMinimumRadius and kIcnOscillationRadius, so the
+    // estimate (radius kIcnMinimumRadius) stays below it by at most their
+    // ratio.
+    for (const double nu : {0.002, 0.005, 0.01}) {
         CAPTURE(nu);
         const double limit = timestepLimit(grid, 1.0, 1.0, nu);
+        const double exact = exactStabilityLimit(grid, nu);
         REQUIRE(limit < exact);
-        REQUIRE(limit > 0.8 * exact);
+        REQUIRE(limit > kIcnMinimumRadius / kIcnOscillationRadius * exact);
     }
 }
 
-TEST_CASE("Small hyper-resistivity leaves the long waves unchanged",
+TEST_CASE("Small hyper-resistivity changes long waves only at the "
+          "analytic, slow rate",
           "[hybrid][wave][hyper]") {
     for (const double nu : {1e-4, 1e-3}) {
         for (const WaveBranch branch : {WaveBranch::R, WaveBranch::L}) {
@@ -298,39 +420,36 @@ TEST_CASE("Small hyper-resistivity leaves the long waves unchanged",
             ElectronModel electrons;
             electrons.hyperResistivity = nu;
             HybridScenario scenario =
-                waveScenario(branch, 64, 0.002, 2, 0.01, electrons);
+                waveScenario(branch, kWaveCells, kWaveDt, 2, 0.01, electrons);
             const double k = waveNumber(scenario.wave, scenario.state.grid);
+            const double tolerance =
+                kSafetyFactor * dispersionError(k, kWaveDx);
             const WaveMeasurement measured = measureWave(scenario, 2.0);
+            const double gamma = dissipativeFrequency(k, nu, branch).imag();
             REQUIRE(measured.omega ==
-                    Catch::Approx(waveFrequency(k, branch)).epsilon(5e-3));
-            REQUIRE(measured.amplitudeRatio == Catch::Approx(1.0).margin(0.02));
+                    Catch::Approx(waveFrequency(k, branch)).epsilon(tolerance));
+            REQUIRE(measured.amplitudeRatio ==
+                    Catch::Approx(std::exp(gamma * measured.duration))
+                        .margin(tolerance));
         }
     }
 }
 
 TEST_CASE("Small hyper-resistivity removes grid-scale whistlers",
           "[hybrid][wave][hyper]") {
-    // Ideal electrons: the grid-scale wave survives. Its ratio ~0.83 is the
-    // ICN numerical damping, |g|^2 = 1 - y^4/4 + y^6/16 per step at
-    // y = omega dt ~ 0.42, i.e. ~0.4 % per step over 50 steps.
-    HybridScenario ideal = gridScaleScenario(0.0);
-    REQUIRE(amplitudeRatioAfter(ideal, kGridScaleK, 0.1) > 0.5);
-    // Same nu as the long-wave test: rate ~nu k^4 ~ 65 wipes it out.
-    HybridScenario damped = gridScaleScenario(1e-3);
-    REQUIRE(amplitudeRatioAfter(damped, kGridScaleK, 0.1) < 0.05);
+    // Ideal electrons: the grid-scale wave survives with ~83 % of its
+    // amplitude, the ICN numerical damping |g|^2 = 1 - y^4/4 + y^6/16 per
+    // step at y = omega dt ~ 0.42.
+    checkGridScaleAmplification(0.0);
+    // Same nu as the long-wave test: the rate nu k^4 ~ 43 leaves ~1 %.
+    checkGridScaleAmplification(1e-3);
 }
 
 TEST_CASE("A grid-scale perturbation decays below the timestep limit and "
           "grows above it",
           "[hybrid][stability]") {
-    for (const double fraction : {0.8, 1.2}) {
-        CAPTURE(fraction);
-        const double measured = nyquistAmplification(fraction, 2);
-        REQUIRE((fraction < 1.0 ? measured < 1.0 : measured > 1.0));
-        REQUIRE(measured ==
-                Catch::Approx(expectedNyquistAmplification(fraction, 2))
-                    .epsilon(0.05));
-    }
+    REQUIRE(checkNyquistAmplification(0.8, 2) < 1.0);
+    REQUIRE(checkNyquistAmplification(1.2, 2) > 1.0);
 }
 
 TEST_CASE("With one ICN correction a grid-scale perturbation grows even "
@@ -338,10 +457,6 @@ TEST_CASE("With one ICN correction a grid-scale perturbation grows even "
           "[hybrid][stability]") {
     for (const double fraction : {0.5, 0.8}) {
         CAPTURE(fraction);
-        const double measured = nyquistAmplification(fraction, 1);
-        REQUIRE(measured > 1.0);
-        REQUIRE(measured ==
-                Catch::Approx(expectedNyquistAmplification(fraction, 1))
-                    .epsilon(0.05));
+        REQUIRE(checkNyquistAmplification(fraction, 1) > 1.0);
     }
 }

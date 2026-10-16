@@ -12,6 +12,7 @@ exactly at rest.
 #include <algorithm>
 #include <cmath>
 #include <functional>
+#include <limits>
 #include <vector>
 
 #include "field_solver.hpp"
@@ -19,8 +20,19 @@ exactly at rest.
 #include "hybrid_step.hpp"
 #include "loader.hpp"
 #include "scenarios.hpp"
+#include "tolerances.hpp"
 
 namespace {
+
+// Floating-point operations of Ohm's law at one node (interpolations,
+// cross product, pressure gradient, divisions), rounded up.
+constexpr double kOhmOperations = 100.0;
+
+// Allowed error of a second-order spatial operator on a mode of
+// wavenumber k and amplitude 'amplitude', with node spacing dx.
+double spatialTolerance(double k, double dx, double amplitude) {
+    return kSafetyFactor * spatialTruncation(k, dx) * amplitude;
+}
 
 // Field f(x_i) on the nodes of the given centering.
 Field sampledField(const std::function<double(double)> &f, Centering centering,
@@ -85,10 +97,15 @@ double maxAbs(const VecField &field) {
 
 TEST_CASE("Yee derivatives are second-order accurate in both directions",
           "[fields][derivative]") {
+    // Analytic reference (cos x): no reference error to subtract.
+    const double expected =
+        expectedConvergenceRatio(2, std::numeric_limits<double>::infinity());
+    const double tolerance =
+        convergenceRatioTolerance(2, spatialTruncation(1.0, 2.0 * kPi / 32));
     for (Centering centering : {Centering::Primal, Centering::Dual}) {
         const double ratio =
             derivativeError(32, centering) / derivativeError(64, centering);
-        REQUIRE(ratio == Catch::Approx(4.0).margin(0.1));
+        REQUIRE(ratio == Catch::Approx(expected).margin(tolerance));
     }
 }
 
@@ -105,8 +122,11 @@ TEST_CASE("Ampere gives j = (0, -dBz/dx, dBy/dx) on the E centering",
     REQUIRE(j.z.centering == Centering::Primal);
     REQUIRE(std::all_of(j.x.values.begin(), j.x.values.end(),
                         [](double v) { return v == 0.0; }));
-    REQUIRE(maxError(j.y, [](double x) { return std::sin(x); }, grid) < 1e-4);
-    REQUIRE(maxError(j.z, [](double x) { return std::cos(x); }, grid) < 1e-4);
+    const double tolerance = spatialTolerance(1.0, grid.dx, 1.0);
+    REQUIRE(
+        maxError(j.y, [](double x) { return std::sin(x); }, grid) < tolerance);
+    REQUIRE(
+        maxError(j.z, [](double x) { return std::cos(x); }, grid) < tolerance);
 }
 
 TEST_CASE("Faraday gives dB/dt = -curl E and leaves Bx (div B) untouched",
@@ -126,12 +146,13 @@ TEST_CASE("Faraday gives dB/dt = -curl E and leaves Bx (div B) untouched",
     // dBy/dt = dEz/dx = -sin(x), dBz/dt = -dEy/dx = -cos(x).
     const Field dBy = addScaled(B.y, Bn.y, -1.0);
     const Field dBz = addScaled(B.z, Bn.z, -1.0);
+    const double tolerance = spatialTolerance(1.0, grid.dx, dt);
     REQUIRE(maxError(
                 dBy, [dt](double x) { return -dt * std::sin(x); }, grid) <
-            1e-4 * dt);
+            tolerance);
     REQUIRE(maxError(
                 dBz, [dt](double x) { return -dt * std::cos(x); }, grid) <
-            1e-4 * dt);
+            tolerance);
 }
 
 TEST_CASE("Ohm's ideal term gives E = -u x B for a uniform flow",
@@ -140,11 +161,12 @@ TEST_CASE("Ohm's ideal term gives E = -u x B for a uniform flow",
     const Moments moments = uniformMoments(1.0, {0.0, 0.2, 0.0}, grid);
     const VecField E =
         ohm(moments, uniformB({1.0, 0.0, 0.0}, grid), ElectronModel{}, grid);
-    // -u x B = -(0.2 y) x (x) = 0.2 z.
+    // -u x B = -(0.2 y) x (x) = 0.2 z, exact up to round-off.
+    const double tolerance = roundoffTolerance(kOhmOperations, 0.2);
     for (int i = 0; i < grid.nx; ++i) {
-        REQUIRE(E.x.values[i] == Catch::Approx(0.0).margin(1e-15));
-        REQUIRE(E.y.values[i] == Catch::Approx(0.0).margin(1e-15));
-        REQUIRE(E.z.values[i] == Catch::Approx(0.2));
+        REQUIRE(E.x.values[i] == Catch::Approx(0.0).margin(tolerance));
+        REQUIRE(E.y.values[i] == Catch::Approx(0.0).margin(tolerance));
+        REQUIRE(E.z.values[i] == Catch::Approx(0.2).margin(tolerance));
     }
 }
 
@@ -160,8 +182,11 @@ TEST_CASE("Ohm's pressure term gives Ex = -Te (dn/dx) / n", "[fields][ohm]") {
     const auto exact = [](double x) {
         return -0.5 * 0.1 * std::cos(x) / (1.0 + 0.1 * std::sin(x));
     };
+    // Largest |Ex|, at the steepest density drop.
+    const double amplitude = 0.5 * 0.1 / (1.0 - 0.1);
     REQUIRE(E.x.centering == Centering::Dual);
-    REQUIRE(maxError(E.x, exact, grid) < 1e-4);
+    REQUIRE(maxError(E.x, exact, grid) <
+            spatialTolerance(1.0, grid.dx, amplitude));
 }
 
 TEST_CASE("Ohm's hyper-resistive term gives E = -nu d^2j/dx^2",
@@ -176,7 +201,7 @@ TEST_CASE("Ohm's hyper-resistive term gives E = -nu d^2j/dx^2",
     const VecField E = ohm(uniformMoments(1.0, {}, grid), B, electrons, grid);
     // jy = -dBz/dx = 2 sin 2x, so Ey = -nu d^2jy/dx^2 = 8 nu sin 2x.
     const auto exact = [](double x) { return 0.08 * std::sin(2.0 * x); };
-    REQUIRE(maxError(E.y, exact, grid) < 1e-3 * 0.08);
+    REQUIRE(maxError(E.y, exact, grid) < spatialTolerance(2.0, grid.dx, 0.08));
 }
 
 TEST_CASE("A uniform equilibrium has E = 0 and stays exactly at rest",
@@ -187,12 +212,20 @@ TEST_CASE("A uniform equilibrium has E = 0 and stays exactly at rest",
     const VecField B0 = uniformB({1.0, 0.3, -0.2}, grid);
     HybridState state = initializeState(
         grid, B0, loadPlasma(population, WaveSettings{}, grid), electrons);
-    REQUIRE(maxAbs(state.E) < 1e-14);
+    // E vanishes exactly in exact arithmetic. The largest round-off term
+    // is the pressure gradient Te dn/dx / n of the deposit's round-off
+    // in n, over one cell.
+    const double densityRoundoff =
+        roundoffTolerance(2.0 * population.ppc * kShapeOperations, 1.0);
+    const double tolerance =
+        electrons.temperature * densityRoundoff / grid.dx +
+        roundoffTolerance(kOhmOperations, norm(Vector3{1.0, 0.3, -0.2}));
+    REQUIRE(maxAbs(state.E) < tolerance);
     const HybridParameters params{0.01, 2, electrons};
     for (int step = 0; step < 50; ++step) {
         hybridStep(state, params);
     }
-    REQUIRE(maxAbs(state.E) < 1e-14);
+    REQUIRE(maxAbs(state.E) < tolerance);
     REQUIRE(state.B.y.values == B0.y.values);
     REQUIRE(state.B.z.values == B0.z.values);
 }
