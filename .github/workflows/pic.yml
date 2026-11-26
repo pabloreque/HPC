@@ -13,8 +13,8 @@ jobs:
     name: clang-format
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
       # Same clang-format as the local .venv: formatting differs between
@@ -31,12 +31,12 @@ jobs:
       run:
         working-directory: PIC
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Install HDF5 (C++ bindings)
         run: sudo apt-get update && sudo apt-get install -y libhdf5-dev
       # Python headers for the pybind11 module, and what its pytest suite
       # imports.
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
       - name: Install the Python test dependencies
