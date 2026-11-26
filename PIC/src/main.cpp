@@ -43,6 +43,7 @@ its own group (full list in README.md), e.g.:
 #include "hybrid_step.hpp"
 #include "input_file.hpp"
 #include "simulation.hpp"
+#include "trajectory.hpp"
 #include "vector3.hpp"
 
 // Averages the velocity over all recorded samples.
@@ -95,14 +96,12 @@ void runTestParticles(const Input &input, H5::Group &group,
               << config.groupName << "'\n";
 }
 
-// Prints magnetic, kinetic and total energy plus max |div B| of a state.
-// W = W_B + W_K leaves out the electron thermal energy and the ohmic
-// losses, so it is only expected to be conserved for Te = eta = nu = 0.
+// Prints magnetic, kinetic and total energy (see Energies) plus
+// max |div B| of a state.
 void printEnergies(const char *label, const HybridState &state) {
-    const double wB = magneticEnergy(state);
-    const double wK = kineticEnergy(state);
-    std::printf("  %s: W_B=%.10f W_K=%.10f W=%.10f max|divB|=%.2e\n", label, wB,
-                wK, wB + wK, maxDivergenceB(state));
+    const Energies w = energies(state);
+    std::printf("  %s: W_B=%.10f W_K=%.10f W=%.10f max|divB|=%.2e\n", label,
+                w.magnetic, w.kinetic, w.total, maxDivergenceB(state));
 }
 
 // Prints every stability warning of a hybrid run on stderr.

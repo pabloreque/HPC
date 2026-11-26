@@ -124,23 +124,6 @@ inline void hybridStep(HybridState &state, const HybridParameters &params) {
     state = std::move(guess);
 }
 
-// Grid quantities saved at one output time.
-struct FieldSnapshot {
-    double time = 0.0;
-    VecField E;
-    VecField B;
-    Moments moments;
-    // Ion temperature on primal nodes (diagnostic, see depositTemperature).
-    Field ionTemperature;
-};
-
-// Copies the grid quantities of 'state' at 'time' and computes the ion
-// temperature.
-inline FieldSnapshot takeSnapshot(const HybridState &state, double time) {
-    return FieldSnapshot{time, state.E, state.B, state.moments,
-                         depositTemperature(state.particles, state.grid)};
-}
-
 // Radius of the ICN (2 corrections) stability region |g(z)| <= 1 on the
 // imaginary axis, i.e. for a pure oscillation z = i omega dt.
 constexpr double kIcnOscillationRadius = 2.0;

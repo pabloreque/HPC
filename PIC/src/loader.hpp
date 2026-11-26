@@ -54,8 +54,6 @@ instead of a mix of R and L.
 #include "shape.hpp"
 #include "vector3.hpp"
 
-constexpr double kTwoPi = 6.28318530717958647692;
-
 // Initial ion moments on the nx primal nodes x_i = i*dx. An empty vector
 // means that moment is uniform (see PopulationSettings).
 struct NodeProfiles {
@@ -196,17 +194,6 @@ inline VectorProfile vectorProfile(const std::vector<Vector3> &values,
         field.z.values[i] = values[i].z;
     }
     return VectorProfile{field};
-}
-
-// Initial ion density on the primal nodes (uniform or from the profile).
-inline Field initialDensity(const PopulationSettings &population,
-                            const Grid1D &grid) {
-    if (!population.profiles.density.empty()) {
-        return Field{Centering::Primal, population.profiles.density};
-    }
-    Field density = makeField(Centering::Primal, grid);
-    std::fill(density.values.begin(), density.values.end(), population.density);
-    return density;
 }
 
 // Smallest initial ion density: where the whistler is fastest.

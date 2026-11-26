@@ -20,8 +20,6 @@ plasma) whose analytic frequency is waveFrequency() in loader.hpp.
 #include "loader.hpp"
 #include "vector3.hpp"
 
-constexpr double kPi = 3.14159265358979323846;
-
 // Normalized units: charge = mass = 1, |B| = 1, so the cyclotron angular
 // frequency omega_c = q*B/m = 1 and the Larmor radius r_L = v0/omega_c = v0.
 constexpr double kCharge = 1.0;

@@ -23,6 +23,7 @@ coincidence.
 #include "boris_pusher.hpp"
 #include "scenarios.hpp"
 #include "tolerances.hpp"
+#include "trajectory.hpp"
 #include "vector3.hpp"
 
 namespace {

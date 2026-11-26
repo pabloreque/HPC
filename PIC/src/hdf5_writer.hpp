@@ -20,22 +20,9 @@ attributes, and file/group handling.
 #include "hybrid_step.hpp"
 #include "input.hpp"
 #include "loader.hpp"
+#include "snapshot.hpp"
+#include "trajectory.hpp"
 #include "vector3.hpp"
-
-// Splits vector<Vector3> into one double array per axis (x, y, z).
-inline std::array<std::vector<double>, 3>
-splitComponents(const std::vector<Vector3> &vectors) {
-    std::array<std::vector<double>, 3> components;
-    components[0].reserve(vectors.size());
-    components[1].reserve(vectors.size());
-    components[2].reserve(vectors.size());
-    for (const Vector3 &vector : vectors) {
-        components[0].push_back(vector.x);
-        components[1].push_back(vector.y);
-        components[2].push_back(vector.z);
-    }
-    return components;
-}
 
 // Writes one 1D array of doubles to disk inside 'group'.
 inline void writeDataset(H5::Group &group, const std::string &name,
@@ -51,18 +38,9 @@ inline void writeDataset(H5::Group &group, const std::string &name,
 inline void writeTrajectory(H5::Group &group, const Trajectory &trajectory) {
     hsize_t dims[1] = {static_cast<hsize_t>(trajectory.time.size())};
     H5::DataSpace dataspace(1, dims);
-
-    writeDataset(group, "t", trajectory.time, dataspace);
-
-    const auto position = splitComponents(trajectory.position);
-    writeDataset(group, "x", position[0], dataspace);
-    writeDataset(group, "y", position[1], dataspace);
-    writeDataset(group, "z", position[2], dataspace);
-
-    const auto velocity = splitComponents(trajectory.velocity);
-    writeDataset(group, "vx", velocity[0], dataspace);
-    writeDataset(group, "vy", velocity[1], dataspace);
-    writeDataset(group, "vz", velocity[2], dataspace);
+    for (const TrajectoryColumn &column : trajectoryColumns(trajectory)) {
+        writeDataset(group, column.name, column.values, dataspace);
+    }
 }
 
 // Deletes 'groupName' if it already exists, so re-running the driver
@@ -194,42 +172,6 @@ inline void writeRunAttributes(H5::Group &group, const Input &input) {
     writeWaveAttributes(group, input.hybrid->wave);
 }
 
-constexpr std::size_t kSavedFieldCount = 11;
-
-// Dataset names of the saved grid quantities, in snapshotFields() order.
-constexpr std::array<const char *, kSavedFieldCount> kSavedFieldNames = {
-    "Ex", "Ey", "Ez", "Bx", "By", "Bz", "n", "ux", "uy", "uz", "Ti"};
-
-// The saved grid quantities of one snapshot, in kSavedFieldNames order.
-inline std::array<const Field *, kSavedFieldCount>
-snapshotFields(const FieldSnapshot &snapshot) {
-    return {&snapshot.E.x,
-            &snapshot.E.y,
-            &snapshot.E.z,
-            &snapshot.B.x,
-            &snapshot.B.y,
-            &snapshot.B.z,
-            &snapshot.moments.density,
-            &snapshot.moments.velocity.x,
-            &snapshot.moments.velocity.y,
-            &snapshot.moments.velocity.z,
-            &snapshot.ionTemperature};
-}
-
-// Stacks grid quantity number quantityIndex of every snapshot into a row-major
-// (snapshots x nx) array.
-inline std::vector<double>
-stackSnapshots(const std::vector<FieldSnapshot> &history,
-               std::size_t quantityIndex) {
-    std::vector<double> data;
-    for (const FieldSnapshot &snapshot : history) {
-        const std::vector<double> &row =
-            snapshotFields(snapshot)[quantityIndex]->values;
-        data.insert(data.end(), row.begin(), row.end());
-    }
-    return data;
-}
-
 // Writes grid quantity number quantityIndex over time as a (snapshots x nx)
 // dataset, tagged with its centering.
 inline void writeFieldDataset(H5::Group &group,
@@ -246,16 +188,6 @@ inline void writeFieldDataset(H5::Group &group,
     writeCenteringAttribute(dataset, first.centering);
 }
 
-// Positions of the nx nodes of one centering.
-inline std::vector<double> nodePositions(const Grid1D &grid,
-                                         Centering centering) {
-    std::vector<double> positions;
-    for (int i = 0; i < grid.nx; ++i) {
-        positions.push_back(nodePosition(i, centering, grid));
-    }
-    return positions;
-}
-
 // Writes the primal and dual node positions, x_primal and x_dual.
 inline void writeNodePositions(H5::Group &group, const Grid1D &grid) {
     const hsize_t dims[1] = {static_cast<hsize_t>(grid.nx)};
@@ -264,16 +196,6 @@ inline void writeNodePositions(H5::Group &group, const Grid1D &grid) {
                  dataspace);
     writeDataset(group, "x_dual", nodePositions(grid, Centering::Dual),
                  dataspace);
-}
-
-// Times of the snapshots, one value per snapshot.
-inline std::vector<double>
-snapshotTimes(const std::vector<FieldSnapshot> &history) {
-    std::vector<double> time;
-    for (const FieldSnapshot &snapshot : history) {
-        time.push_back(snapshot.time);
-    }
-    return time;
 }
 
 // Writes the snapshot times t (one value per snapshot).

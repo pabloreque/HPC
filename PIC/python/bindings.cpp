@@ -41,6 +41,8 @@ Every array returned is a copy: modifying it does not change the run.
 #include "loader.hpp"
 #include "parse.hpp"
 #include "simulation.hpp"
+#include "snapshot.hpp"
+#include "trajectory.hpp"
 #include "vector3.hpp"
 
 namespace py = pybind11;
@@ -129,24 +131,29 @@ using KeySetter = std::function<void(Input &, const py::handle &)>;
 constexpr std::array<const char *, 5> kRequiredHybridKeys = {
     "dt", "B", "length", "nx", "ppc"};
 
+// A scalar moment given as a number (stored in 'uniform') or as one value
+// per primal node (stored in 'profile'), like density= and vth=.
+void setScalarMoment(double &uniform, std::vector<double> &profile,
+                     const py::handle &value, const std::string &name) {
+    if (isScalar(value)) {
+        uniform = value.cast<double>();
+    } else {
+        profile = toVector(value, name);
+    }
+}
+
 // density=: a number (uniform) or one value per primal node (profile).
 void setDensity(Input &input, const py::handle &value) {
     PopulationSettings &population = input.hybrid->population;
-    if (isScalar(value)) {
-        population.density = value.cast<double>();
-    } else {
-        population.profiles.density = toVector(value, "density");
-    }
+    setScalarMoment(population.density, population.profiles.density, value,
+                    "density");
 }
 
 // vth=: a number (uniform) or one value per primal node (profile).
 void setThermalSpeed(Input &input, const py::handle &value) {
     PopulationSettings &population = input.hybrid->population;
-    if (isScalar(value)) {
-        population.vth = value.cast<double>();
-    } else {
-        population.profiles.thermalSpeed = toVector(value, "vth");
-    }
+    setScalarMoment(population.vth, population.profiles.thermalSpeed, value,
+                    "vth");
 }
 
 // bulk_velocity=: an (nx, 3) array, one ion bulk velocity per primal node.
@@ -295,14 +302,13 @@ py::dict particleArrays(const HybridState &state) {
     return arrays;
 }
 
-// Magnetic, kinetic and total energy of the current state.
-py::dict energies(const HybridState &state) {
-    const double magnetic = magneticEnergy(state);
-    const double kinetic = kineticEnergy(state);
+// Magnetic, kinetic and total energy of the current state, as a dict.
+py::dict energyDict(const HybridState &state) {
+    const Energies w = energies(state);
     py::dict values;
-    values["magnetic"] = magnetic;
-    values["kinetic"] = kinetic;
-    values["total"] = magnetic + kinetic;
+    values["magnetic"] = w.magnetic;
+    values["kinetic"] = w.kinetic;
+    values["total"] = w.total;
     return values;
 }
 
@@ -371,16 +377,10 @@ class HybridSimulation {
 // HDF5 dataset names) plus its q and m.
 py::dict trajectoryArrays(const Trajectory &trajectory,
                           const Species &species) {
-    const auto position = splitComponents(trajectory.position);
-    const auto velocity = splitComponents(trajectory.velocity);
     py::dict arrays;
-    arrays["t"] = toArray(trajectory.time);
-    arrays["x"] = toArray(position[0]);
-    arrays["y"] = toArray(position[1]);
-    arrays["z"] = toArray(position[2]);
-    arrays["vx"] = toArray(velocity[0]);
-    arrays["vy"] = toArray(velocity[1]);
-    arrays["vz"] = toArray(velocity[2]);
+    for (const TrajectoryColumn &column : trajectoryColumns(trajectory)) {
+        arrays[column.name] = toArray(column.values);
+    }
     arrays["q"] = species.charge;
     arrays["m"] = species.mass;
     return arrays;
@@ -589,7 +589,7 @@ void bindHybridSimulation(py::module_ &module) {
         .def(
             "energies",
             [](const HybridSimulation &sim) {
-                return energies(sim.state().state);
+                return energyDict(sim.state().state);
             },
             "Magnetic, kinetic (from the particles) and total energy now.")
         .def(

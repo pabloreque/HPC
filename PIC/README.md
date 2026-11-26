@@ -126,11 +126,13 @@ PIC/
 ├── CMakeLists.txt
 ├── src/
 │   ├── vector3.hpp             # 3D vector type + operators
-│   ├── boris_pusher.hpp        # particle pusher (Species, Particle, EMFields, ...)
-│   ├── grid.hpp                # periodic wrap + 1D Yee mesh: centering, Field, VecField
+│   ├── boris_pusher.hpp        # particle pusher (Species, Particle, EMFields, ...), periodic wrap
+│   ├── trajectory.hpp          # test-particle trajectory: Boris run, saved columns
+│   ├── grid.hpp                # periodic wrap + 1D Yee mesh: centering, node positions, Field, VecField
 │   ├── shape.hpp               # linear shape: moment deposit, field gather
 │   ├── field_solver.hpp        # Ampere, Faraday, Ohm's law
-│   ├── hybrid_step.hpp         # ICN predictor-corrector time step
+│   ├── hybrid_step.hpp         # ICN predictor-corrector time step, stability limit
+│   ├── snapshot.hpp            # field snapshots: saved quantities and their names
 │   ├── loader.hpp              # ion load from mesh moments + eigenmode wave
 │   ├── profile_file.hpp        # initial n, u, vth profile file reader
 │   ├── parse.hpp               # value parsing helpers, key=value line reader

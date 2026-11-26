@@ -32,6 +32,10 @@ direction), so a 2D/3D version only has to query y and z as well.
 #include <stdexcept>
 #include <vector>
 
+constexpr double kPi = 3.14159265358979323846;
+// One period in phase: wavenumbers of the periodic box are kTwoPi*m/L.
+constexpr double kTwoPi = 2.0 * kPi;
+
 // Maps any integer index onto [0, count), wrapping negative values too.
 inline int wrapIndex(int i, int count) {
     const int remainder = i % count;
@@ -93,6 +97,16 @@ constexpr double centeringOffset(Centering centering) {
 // Position of node i with the given centering.
 inline double nodePosition(int i, Centering centering, const Grid1D &grid) {
     return (i + centeringOffset(centering)) * grid.dx;
+}
+
+// Positions of the nx nodes of one centering.
+inline std::vector<double> nodePositions(const Grid1D &grid,
+                                         Centering centering) {
+    std::vector<double> positions;
+    for (int i = 0; i < grid.nx; ++i) {
+        positions.push_back(nodePosition(i, centering, grid));
+    }
+    return positions;
 }
 
 // One scalar quantity on the grid: nx values plus where they live.

@@ -13,6 +13,7 @@ Catch2 tests of the periodic boundaries (src/grid.hpp, pusher).
 #include "grid.hpp"
 #include "scenarios.hpp"
 #include "tolerances.hpp"
+#include "trajectory.hpp"
 
 // Operations of one Boris step plus its periodic wrap, rounded up: the
 // round-off budget per step of the folded trajectory.

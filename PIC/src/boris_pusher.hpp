@@ -1,7 +1,7 @@
 /*
 Pablo Requeijo, September 24 2026 (Session 2); October 1 2026 (Session 3).
 HPC coursework: Boris pusher.
-Boris pusher step and trajectory simulation.
+Boris pusher step and periodic wrap of particle positions.
 
 Time-centered integration of dv/dt = (q/m)(E + v x B), dx/dt = v,
 one step (r^n, v^n) -> (r^(n+1), v^(n+1)):
@@ -34,9 +34,7 @@ Rotation never changes a vector's length, so |v| is preserved exactly
 */
 #pragma once
 
-#include <cstddef>  // std::size_t: sample count for the trajectory vectors
 #include <optional> // std::optional: periodic box length, or none (unbounded)
-#include <vector>
 
 #include "grid.hpp"
 #include "vector3.hpp"
@@ -64,14 +62,6 @@ using Particle3D = Particle<Vector3>;
 struct EMFields {
     Vector3 E;
     Vector3 B;
-};
-
-struct Trajectory {
-    std::vector<double> time;
-    // vector<Vector3> is a vector of 3D vectors, representing the
-    // position (or velocity) of the particle at each time step
-    std::vector<Vector3> position;
-    std::vector<Vector3> velocity;
 };
 
 // Advances position by half a step at constant velocity: r + v*dt/2.
@@ -147,37 +137,4 @@ inline void applyPeriodicX(Particle<Position> &state,
     if (periodicLength) {
         wrapPeriodicX(state.position, *periodicLength);
     }
-}
-
-// Appends the time, position and velocity of one step to the trajectory.
-inline void recordSample(Trajectory &trajectory, double time,
-                         const Particle3D &state) {
-    trajectory.time.push_back(time);
-    trajectory.position.push_back(state.position);
-    trajectory.velocity.push_back(state.velocity);
-}
-
-// Integrates numSteps Boris steps from initialState, recording every
-// step plus the initial state. With periodicLength set, x is wrapped into
-// [0, periodicLength) after every step.
-inline Trajectory
-simulateBorisPusher(const Particle3D &initialState, const EMFields &fields,
-                    double dt, int numSteps,
-                    const std::optional<double> &periodicLength = {}) {
-    Trajectory trajectory;
-    // We want to reserve space for the number of steps in our
-    // simulation and the initial state, hence numSteps + 1.
-    const std::size_t samples = static_cast<std::size_t>(numSteps) + 1;
-    trajectory.time.reserve(samples);
-    trajectory.position.reserve(samples);
-    trajectory.velocity.reserve(samples);
-
-    Particle3D state = initialState;
-    recordSample(trajectory, 0.0, state);
-    for (int step = 1; step <= numSteps; ++step) {
-        state = borisStep(state, fields, dt);
-        applyPeriodicX(state, periodicLength);
-        recordSample(trajectory, step * dt, state);
-    }
-    return trajectory;
 }

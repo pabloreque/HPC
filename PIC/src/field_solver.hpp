@@ -47,15 +47,20 @@ struct ElectronModel {
     double hyperResistivity = 0.0;
 };
 
+// Index of the input node just left of output node i, when an operator
+// maps a field of centering 'input' onto the opposite centering.
+// Primal -> dual: x_{i+1/2} lies between primal i and i+1. Dual -> primal:
+// x_i lies between dual i-1 and i (x_{i-1/2}, x_{i+1/2}).
+constexpr int leftNeighbour(int i, Centering input) {
+    return input == Centering::Primal ? i : i - 1;
+}
+
 // d/dx of a field, landing on the opposite centering: each output node
 // sits midway between two input nodes, (right - left)/dx.
 inline Field derivativeX(const Field &f, const Grid1D &grid) {
     Field out = makeField(opposite(f.centering), grid);
     for (int i = 0; i < grid.nx; ++i) {
-        // Primal -> dual: x_{i+1/2} lies between primal i and i+1.
-        // Dual -> primal: x_i lies between dual i-1 and i (x_{i-1/2},
-        // x_{i+1/2}).
-        const int left = f.centering == Centering::Primal ? i : i - 1;
+        const int left = leftNeighbour(i, f.centering);
         out.values[i] = (f.at(left + 1) - f.at(left)) / grid.dx;
     }
     return out;
@@ -78,8 +83,7 @@ inline VecField laplacianX(const VecField &f, const Grid1D &grid) {
 inline Field averageToOpposite(const Field &f, const Grid1D &grid) {
     Field out = makeField(opposite(f.centering), grid);
     for (int i = 0; i < grid.nx; ++i) {
-        // Same neighbours as in derivativeX.
-        const int left = f.centering == Centering::Primal ? i : i - 1;
+        const int left = leftNeighbour(i, f.centering);
         out.values[i] = 0.5 * (f.at(left) + f.at(left + 1));
     }
     return out;

@@ -24,6 +24,8 @@ Simulation runs shared by the C++ driver (main.cpp) and the Python module
 #include "input.hpp"
 #include "loader.hpp"
 #include "parse.hpp"
+#include "snapshot.hpp"
+#include "trajectory.hpp"
 #include "vector3.hpp"
 
 // Integrates every particle of a test-particle input in its uniform E, B.
@@ -116,6 +118,22 @@ inline double kineticEnergy(const HybridState &state) {
                dot(particle.velocity, particle.velocity);
     }
     return sum * state.grid.dx;
+}
+
+// Energy budget of a hybrid state. W = W_B + W_K leaves out the electron
+// thermal energy and the ohmic losses, so it is only expected to be
+// conserved for Te = eta = nu = 0.
+struct Energies {
+    double magnetic = 0.0;
+    double kinetic = 0.0;
+    double total = 0.0;
+};
+
+// Magnetic, kinetic and total energy of a hybrid state.
+inline Energies energies(const HybridState &state) {
+    const double magnetic = magneticEnergy(state);
+    const double kinetic = kineticEnergy(state);
+    return Energies{magnetic, kinetic, magnetic + kinetic};
 }
 
 // Largest |dBx/dx|: the discrete div B of the 1D Yee mesh.

@@ -7,6 +7,7 @@ loaded like a profile file, and that bad arguments raise clean errors.
 """
 
 import subprocess
+from pathlib import Path
 
 import h5py
 import numpy as np
@@ -32,6 +33,15 @@ def shortened_input(tmp_path, example, steps=SHORT_STEPS):
     path = tmp_path / example
     path.write_text("\n".join(lines) + "\n")
     return path
+
+
+def input_value(input_path, key):
+    """Value of the key=value line 'key' of an input file, as a float."""
+    for line in Path(input_path).read_text().splitlines():
+        name, _, value = line.partition("=")
+        if name.strip() == key:
+            return float(value.split("#")[0])
+    raise KeyError(key)
 
 
 def run_driver(driver, input_path, output_path, group):
@@ -80,13 +90,14 @@ def test_hybrid_history_matches_driver(tmp_path, driver):
 
 
 def test_run_defaults_to_the_input_steps(tmp_path):
-    sim = pic.HybridSimulation.from_file(shortened_input(tmp_path, "alfven_L.txt"))
+    input_path = shortened_input(tmp_path, "alfven_L.txt")
+    sim = pic.HybridSimulation.from_file(input_path)
     sim.run(SHORT_STEPS // 2)
     sim.run()
     assert sim.step == SHORT_STEPS
     sim.run()
     assert sim.step == SHORT_STEPS
-    assert sim.time == pytest.approx(SHORT_STEPS * 0.002, rel=ROUND_OFF)
+    assert sim.time == SHORT_STEPS * input_value(input_path, "dt")
 
 
 def test_current_state_matches_last_snapshot(tmp_path):
