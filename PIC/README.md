@@ -133,9 +133,10 @@ PIC/
 │   ├── hybrid_step.hpp         # ICN predictor-corrector time step
 │   ├── loader.hpp              # ion load from mesh moments + eigenmode wave
 │   ├── profile_file.hpp        # initial n, u, vth profile file reader
-│   ├── parse.hpp               # value parsing helpers
-│   ├── input.hpp               # .txt parsing (test-particle / hybrid mode)
-│   ├── hybrid_input.hpp        # hybrid-mode keys and their validation
+│   ├── parse.hpp               # value parsing helpers, key=value line reader
+│   ├── input.hpp               # Input struct (either mode) and its range checks
+│   ├── input_file.hpp          # .txt parsing (test-particle / hybrid mode)
+│   ├── hybrid_settings.hpp     # hybrid-model settings, their keys and validation
 │   ├── cli.hpp                 # argv parsing
 │   ├── simulation.hpp          # runs shared by the driver and Python: loop, diagnostics
 │   ├── hdf5_writer.hpp         # HDF5 output (datasets + run settings as attributes)

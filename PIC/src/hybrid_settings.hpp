@@ -1,9 +1,17 @@
 /*
 Pablo Requeijo, October 1 2026.
 Session 3, HPC coursework: hybrid PIC.
-Hybrid-mode input keys: grid, electron model, population and wave.
+Hybrid-model settings (grid, electron model, population, wave): the
+HybridSettings struct, how each hybrid key fills it, and its range checks.
 
-An nx= line switches the input file to hybrid mode (see input.hpp):
+Scope: this file knows the hybrid model, not the input file. It sees one
+key=value at a time and whole HybridSettings, never lines, paths or which
+keys appeared, so the same checks serve the .txt parser (input_file.hpp) and
+inputs built in memory (the Python module). Keys shared by both modes
+(dt, steps, B, length) and checks that depend on the file itself (required
+keys, key conflicts, reading profile_file) belong to input_file.hpp.
+
+An nx= line switches the input file to hybrid mode (see input_file.hpp):
 
   nx            number of cells (the box length comes from length=)
   iterations    ICN corrections per step (default 2)
@@ -40,7 +48,7 @@ struct HybridSettings {
     int iterations = 2;
     int outputEvery = 1;
     // Initial moment profile file (profile_file=); empty for uniform
-    // moments. input.hpp reads it into population.profiles.
+    // moments. input_file.hpp reads it into population.profiles.
     std::string profileFile;
     ElectronModel electrons;
     PopulationSettings population;

@@ -19,7 +19,7 @@ Simulation runs shared by the C++ driver (main.cpp) and the Python module
 #include "boris_pusher.hpp"
 #include "field_solver.hpp"
 #include "grid.hpp"
-#include "hybrid_input.hpp"
+#include "hybrid_settings.hpp"
 #include "hybrid_step.hpp"
 #include "input.hpp"
 #include "loader.hpp"

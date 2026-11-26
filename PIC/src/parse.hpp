@@ -1,10 +1,12 @@
 /*
 Pablo Requeijo, September 24 2026 (Session 2); October 1 2026 (Session 3).
 HPC coursework: PIC.
-Parsing helpers shared by the input files (key=value input, profile file).
+Parsing helpers shared by the input files (key=value input, profile file):
+value parsing, comments, and reading key=value lines with their numbers.
 */
 #pragma once
 
+#include <fstream>
 #include <sstream>
 #include <stdexcept>
 #include <string>
@@ -75,4 +77,43 @@ inline Vector3 parseVector3(const std::string &text, const std::string &key) {
 // Drops a trailing '#' comment and the surrounding whitespace.
 inline std::string stripComment(const std::string &line) {
     return trim(line.substr(0, line.find('#')));
+}
+
+struct KeyLine {
+    std::string key;
+    std::string value;
+};
+
+// Splits "key = value" into trimmed key and value. Fails on lines without
+// '=' or with an empty value.
+inline KeyLine splitKeyValue(const std::string &line, const std::string &path,
+                             int lineNo) {
+    const std::string::size_type equalsPosition = line.find('=');
+    if (equalsPosition == std::string::npos) {
+        throw std::runtime_error(lineError(path, lineNo, "expected key=value"));
+    }
+    KeyLine keyLine{trim(line.substr(0, equalsPosition)),
+                    trim(line.substr(equalsPosition + 1))};
+    if (keyLine.value.empty()) {
+        throw std::runtime_error(
+            lineError(path, lineNo, "empty value for '" + keyLine.key + "'"));
+    }
+    return keyLine;
+}
+
+// Reads the next meaningful "key=value" line: strips '#' comments and
+// skips blank lines. Returns false at EOF. lineNo tracks physical lines
+// for errors.
+inline bool nextKeyLine(std::ifstream &file, const std::string &path,
+                        int &lineNo, KeyLine &out) {
+    std::string line;
+    while (std::getline(file, line)) {
+        ++lineNo;
+        line = stripComment(line);
+        if (!line.empty()) {
+            out = splitKeyValue(line, path, lineNo);
+            return true;
+        }
+    }
+    return false;
 }

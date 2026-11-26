@@ -1,7 +1,7 @@
 /*
 Pablo Requeijo, October 1 2026.
 Sessions 2-3, HPC coursework: PIC.
-Catch2 tests of the .txt input parser (src/input.hpp), in test-particle
+Catch2 tests of the .txt input parser (src/input_file.hpp), in test-particle
 and hybrid mode.
 
 Each test writes a small input file to the system temp directory and
@@ -17,7 +17,7 @@ checks that parseInputFile either reads it correctly or fails with a
 #include <utility>
 #include <vector>
 
-#include "input.hpp"
+#include "input_file.hpp"
 
 using Catch::Matchers::ContainsSubstring;
 

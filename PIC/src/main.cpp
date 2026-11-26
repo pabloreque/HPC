@@ -4,7 +4,7 @@ HPC coursework: PIC.
 Generic driver: reads .txt initial conditions, writes HDF5 results.
 
 Reads arbitrary initial conditions from a .txt input file (see examples/)
-and runs one of two modes (see input.hpp):
+and runs one of two modes (see input_file.hpp):
 - test-particle mode: Boris pusher in uniform static E/B, optionally in a
   periodic box; writes one trajectory per particle;
 - hybrid mode: self-consistent 1D hybrid PIC (hybrid_step.hpp); writes
@@ -41,7 +41,7 @@ its own group (full list in README.md), e.g.:
 #include "cli.hpp"
 #include "hdf5_writer.hpp"
 #include "hybrid_step.hpp"
-#include "input.hpp"
+#include "input_file.hpp"
 #include "simulation.hpp"
 #include "vector3.hpp"
 
