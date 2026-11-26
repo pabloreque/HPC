@@ -4,6 +4,7 @@ Cumulative particle-in-cell project, one HPC session after another:
 
 - **Session 2**: Boris pusher for test particles in uniform static fields.
 - **Session 3**: 1D3V hybrid PIC (1D in space, 3D velocities and field components) with self-consistent fields (Ohm's law with resistivity and hyper-resistivity + Faraday on a periodic Yee mesh, iterated Crank–Nicolson), and periodic boundaries along x.
+- **Python front end**: the `pic_prequeijo` module (pybind11) runs both modes from Python and returns NumPy arrays; see [Python front end](#python-front-end-pybind11).
 
 ## Session 2: Boris pusher
 
@@ -53,7 +54,7 @@ $\vec E$ is not evolved in time; it is recomputed from Ohm's law, using the ion 
 
 **Initial ion load** (`src/loader.hpp`), in three steps:
 
-1. *Initial moments on the mesh*: the ion density $n(x)$, bulk velocity $\vec u(x)$ and thermal speed $v_{th}(x)$, each either uniform (`density=`, $\vec u = 0$, `vth=`) or given node by node on the primal nodes $x_i = i\,dx$ by a profile file (`profile_file=`, `src/profile_file.hpp`). The loader only sees the arrays of node values, so a future Python front end (e.g. pybind11) can pass NumPy arrays instead of a file.
+1. *Initial moments on the mesh*: the ion density $n(x)$, bulk velocity $\vec u(x)$ and thermal speed $v_{th}(x)$, each either uniform (`density=`, $\vec u = 0$, `vth=`) or given node by node on the primal nodes $x_i = i\,dx$ by a profile file (`profile_file=`, `src/profile_file.hpp`). The loader only sees the arrays of node values, so the Python module can pass NumPy arrays instead of a file (`density=`, `vth=`, `bulk_velocity=`).
 2. *Particles*: `ppc` macroparticles per cell, evenly spaced.
 3. *Weights and velocities*: each particle at $x_p$ gets $w_p = n(x_p)/$`ppc` and $\vec v_p = \vec u(x_p) + v_{th}(x_p)\,\mathcal N(0, 1)$ per component (fixed `seed`), with the moments interpolated at $x_p$ by the same linear shape function as the deposit. Every cell has the same number of particles whatever its density, so the statistical noise is the same everywhere. Depositing the load gives back the mesh moments: exactly for uniform ones, to $O((k\,dx)^2)$ otherwise (total charge exact), plus the sampling noise of the thermal draws. The weights never change during the run.
 
@@ -136,8 +137,13 @@ PIC/
 │   ├── input.hpp               # .txt parsing (test-particle / hybrid mode)
 │   ├── hybrid_input.hpp        # hybrid-mode keys and their validation
 │   ├── cli.hpp                 # argv parsing
-│   ├── hdf5_writer.hpp         # HDF5 output
+│   ├── simulation.hpp          # runs shared by the driver and Python: loop, diagnostics
+│   ├── hdf5_writer.hpp         # HDF5 output (datasets + run settings as attributes)
 │   └── main.cpp                # generic driver
+├── python/
+│   ├── bindings.cpp            # pybind11 module pic_prequeijo
+│   ├── conftest.py             # pytest: imports the module from build/
+│   └── test_bindings.py        # Python vs driver, bit for bit
 ├── examples/
 │   ├── cyclotron.txt           # pure-B input
 │   ├── drift.txt               # E×B input
@@ -195,19 +201,62 @@ The first configure fetches [Catch2](https://github.com/catchorg/Catch2) v3.5.4 
 
 Test-particle runs print a per-particle summary and write `t`, `x`, `y`, `z`, `vx`, `vy`, `vz` per group (in `particle_N` subgroups for the multi runs). Hybrid runs print the initial/final energies and $\max|\nabla\cdot\vec B|$, and write `t`, `x_primal`, `x_dual` and one `(snapshots × nx)` dataset per grid quantity: `Ex`, `Ey`, `Ez`, `Bx`, `By`, `Bz`, `n`, `ux`, `uy`, `uz`, `Ti`. Each of these has a `centering` attribute (`primal`/`dual`). `thermal_noise` takes a few seconds and writes ~20 MB.
 
+Every group also stores the input settings as attributes, named like the `.txt` keys (`dt`, `steps`, `B`, `length`, and `E` in test-particle mode; `nx`, `iterations`, `output_every`, `Te`, `eta`, `nu`, `ppc`, `seed`, `density`, `vth`, `wave_mode`, `wave_amplitude`, `wave_branch`, `profile_file` in hybrid mode), and each trajectory has `q` and `m`. A uniform `density`/`vth` is left out when a profile replaces it: the profile is in the $t = 0$ snapshot. In Python: `dict(h5py.File("results.h5")["alfven_R"].attrs)`.
+
 Full usage: `./pic_prequeijo <input.txt> [output.h5] [group]`, or `--group <group>` (defaults `results.h5`, `/trajectory`).
 
 Run the tests:
 
 ```bash
-ctest --output-on-failure
+ctest --output-on-failure    # Catch2 suite + pytest suite of the Python module
 # or directly:
 ./pic_prequeijo_test
 ```
 
 What each test checks and why its tolerance is what it is: [TESTS.md](TESTS.md).
 
-On GitHub, every push and pull request runs the workflow `.github/workflows/pic.yml` (Actions tab): it checks the C++ formatting against `.clang-format` (clang-format 23.1.1, the version in the local `.venv`), builds the project, runs the Catch2 suite and runs every input in `examples/` end to end.
+On GitHub, every push and pull request runs the workflow `.github/workflows/pic.yml` (Actions tab): it checks the C++ formatting against `.clang-format` (clang-format 23.1.1, the version in the local `.venv`), builds the project (driver and Python module), runs the Catch2 and pytest suites and runs every input in `examples/` end to end.
+
+## Python front end (pybind11)
+
+`python/bindings.cpp` builds the module `pic_prequeijo` (`build/pic_prequeijo.cpython-*.so`) on the same headers as the driver: `src/simulation.hpp` holds the run loop both use. So with the same input and seed, Python gives bit-identical results (checked by `python/test_bindings.py`). The CLI and HDF5 stay the reference path. The module is a second front end for interactive work and parameter scans, which would otherwise need one `.txt` file per run.
+
+Build: the configure step also fetches [pybind11](https://github.com/pybind/pybind11) v3.1.0 and needs the Python headers. Configure with the repo venv so that the module and the pytest suite use its Python (`-DPIC_BUILD_PYTHON=OFF` skips the module):
+
+```bash
+cd PIC/build
+cmake .. -DPython_EXECUTABLE=../../.venv/bin/python
+cmake --build .
+```
+
+Use (from `PIC/`, with `build/` on the path):
+
+```python
+import sys; sys.path.insert(0, "build")
+import numpy as np
+import pic_prequeijo as pic
+
+# Hybrid mode, from a .txt file or from keywords named like the .txt keys
+sim = pic.HybridSimulation.from_file("examples/alfven_R.txt")
+sim = pic.HybridSimulation(nx=64, length=20 * np.pi, dt=0.05, steps=2600,
+                           output_every=20, B=(1, 0, 0), Te=1, ppc=100,
+                           density=1 + 0.01 * np.cos(0.1 * np.arange(64) * 20 * np.pi / 64))
+sim.run()               # up to steps=; sim.run(100) advances 100 more steps
+h = sim.history()       # dict: t, x_primal, x_dual, Ex..Ez, Bx..Bz, n, ux..uz, Ti
+sim.fields()            # the same quantities now, (nx,) each
+sim.particles()         # x (N,), v (N, 3), weight (N,)
+sim.energies(), sim.max_div_b(), sim.time, sim.step, sim.timestep_limit
+sim.save("build/results.h5", "/density_sine")   # same layout as the driver
+
+# Test-particle mode: one dict (t, x, y, z, vx, vy, vz, q, m) per particle
+trajectories = pic.run_test_particles("examples/multi_drift.txt")
+trajectories = pic.run_test_particles(q=[1], m=[1], x=[[0, 0, 0]], v=[[1, 0, 0]],
+                                      E=(0, 0, 0), B=(0, 0, 1), dt=0.01, steps=1000)
+
+pic.wave_frequency(k, "R")   # analytic cold-plasma branch (scalar or array k)
+```
+
+A profile (`density=`, `vth=` as arrays of `nx` values, `bulk_velocity=` as `(nx, 3)`) replaces the uniform value, like a `profile_file` column. Values are checked like the `.txt` keys: `ValueError` for a bad value, `TypeError` for an unknown keyword. An unstable `dt` or `iterations=1` raises a `RuntimeWarning`, the driver's stderr warnings. The returned arrays are copies. `run()` releases the GIL.
 
 ## Analysis notebooks
 

@@ -271,3 +271,45 @@ TEST_CASE("Input parser rejects bad profile files",
                           ContainsSubstring(c.expectedError));
     }
 }
+
+// Valid hybrid settings with 'nx' cells and in-memory profiles, as a
+// Python front end builds them (no profile file, so no line numbers).
+HybridSettings settingsWithProfiles(int nx, NodeProfiles profiles) {
+    HybridSettings settings;
+    settings.nx = nx;
+    settings.population.ppc = 1;
+    settings.population.profiles = std::move(profiles);
+    return settings;
+}
+
+TEST_CASE("Hybrid validation rejects bad in-memory profiles",
+          "[input][hybrid][profile]") {
+    const Vector3 B0{1.0, 0.0, 0.0};
+    const int nx = 4;
+    const std::vector<double> ones(nx, 1.0);
+    CHECK_NOTHROW(
+        validateHybridSettings(settingsWithProfiles(nx, {ones, {}, ones}), B0));
+
+    struct BadProfileCase {
+        NodeProfiles profiles;
+        std::string expectedError;
+    };
+    const std::vector<BadProfileCase> cases = {
+        {{std::vector<double>(nx + 1, 1.0), {}, {}}, "profile 'n' needs nx=4"},
+        {{{}, std::vector<Vector3>(nx - 1), {}}, "profile 'u' needs nx=4"},
+        {{{}, {}, std::vector<double>(2 * nx, 0.1)},
+         "profile 'vth' needs nx=4"},
+        {{{1.0, 1.0, 0.0, 1.0}, {}, {}}, "n must be > 0"},
+        {{{}, {}, {0.1, -0.1, 0.1, 0.1}}, "vth must be >= 0"}};
+    for (const BadProfileCase &c : cases) {
+        CAPTURE(c.expectedError);
+        CHECK_THROWS_WITH(
+            validateHybridSettings(settingsWithProfiles(nx, c.profiles), B0),
+            ContainsSubstring(c.expectedError));
+    }
+
+    HybridSettings wave = settingsWithProfiles(nx, {ones, {}, {}});
+    wave.wave.mode = 1;
+    CHECK_THROWS_WITH(validateHybridSettings(wave, B0),
+                      ContainsSubstring("a wave needs uniform moments"));
+}

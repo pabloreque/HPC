@@ -24,8 +24,11 @@ An nx= line switches the input file to hybrid mode (see input.hpp):
 */
 #pragma once
 
+#include <algorithm>
+#include <cstddef>
 #include <stdexcept>
 #include <string>
+#include <vector>
 
 #include "field_solver.hpp"
 #include "loader.hpp"
@@ -156,6 +159,38 @@ inline void validatePopulationSettings(const PopulationSettings &population) {
     require(population.vth >= 0.0, "vth must be >= 0");
 }
 
+// True if any initial moment is given node by node.
+inline bool hasProfiles(const NodeProfiles &profiles) {
+    return !profiles.density.empty() || !profiles.bulkVelocity.empty() ||
+           !profiles.thermalSpeed.empty();
+}
+
+// Throws invalid_argument unless profile 'name' is empty (uniform moment)
+// or has one value per primal node.
+inline void requireNodeCount(std::size_t count, int nx,
+                             const std::string &name) {
+    require(count == 0 || count == static_cast<std::size_t>(nx),
+            "profile '" + name + "' needs nx=" + std::to_string(nx) +
+                " values, got " + std::to_string(count));
+}
+
+// Range checks of the initial moment profiles: one value per primal node,
+// n > 0 and vth >= 0 everywhere. The profile file reader already checks
+// this row by row; profiles built in memory (Python) are only checked
+// here, and a wrong length would make the loader read out of bounds.
+inline void validateProfiles(const NodeProfiles &profiles, int nx) {
+    requireNodeCount(profiles.density.size(), nx, "n");
+    requireNodeCount(profiles.bulkVelocity.size(), nx, "u");
+    requireNodeCount(profiles.thermalSpeed.size(), nx, "vth");
+    const std::vector<double> &n = profiles.density;
+    const std::vector<double> &vth = profiles.thermalSpeed;
+    require(std::all_of(n.begin(), n.end(), [](double v) { return v > 0.0; }),
+            "n must be > 0");
+    require(
+        std::all_of(vth.begin(), vth.end(), [](double v) { return v >= 0.0; }),
+        "vth must be >= 0");
+}
+
 // The eigenmode relation in loader.hpp assumes B0 = (1, 0, 0) and n0 = 1.
 inline void validateWaveSettings(const HybridSettings &settings,
                                  const Vector3 &B0) {
@@ -170,6 +205,8 @@ inline void validateWaveSettings(const HybridSettings &settings,
     require(settings.population.density == 1.0, "a wave needs density=1");
     require(settings.profileFile.empty(),
             "a wave needs uniform moments (no profile_file=)");
+    require(!hasProfiles(settings.population.profiles),
+            "a wave needs uniform moments (no profiles)");
 }
 
 // Validates all hybrid settings. Throws invalid_argument on failure.
@@ -177,5 +214,6 @@ inline void validateHybridSettings(const HybridSettings &settings,
                                    const Vector3 &B0) {
     validateSolverSettings(settings);
     validatePopulationSettings(settings.population);
+    validateProfiles(settings.population.profiles, settings.nx);
     validateWaveSettings(settings, B0);
 }

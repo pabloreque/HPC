@@ -45,6 +45,24 @@ struct Input {
     std::optional<HybridSettings> hybrid;
 };
 
+// Range checks of dt, steps and length, shared by the .txt parser and
+// inputs built in memory (Python). Throws invalid_argument on failure.
+inline void validateRunSettings(const Input &input) {
+    require(input.dt > 0.0, "dt must be > 0");
+    require(input.numSteps >= 0, "steps must be >= 0");
+    require(!input.length || *input.length > 0.0, "length must be > 0");
+}
+
+// Checks of a test-particle input built in memory: the parser checks the
+// same line by line. Throws invalid_argument on failure.
+inline void validateTestParticles(const Input &input) {
+    validateRunSettings(input);
+    require(!input.particles.empty(), "need at least one particle");
+    for (const Particle3D &particle : input.particles) {
+        require(particle.species.mass > 0.0, "m must be > 0");
+    }
+}
+
 struct KeyLine {
     std::string key;
     std::string value;
@@ -240,14 +258,10 @@ inline void checkRequiredKeys(const InputBuilder &builder) {
 
 // Throws if dt, steps or length are out of range.
 inline void checkValues(const InputBuilder &builder) {
-    if (builder.input.dt <= 0.0) {
-        failFile(builder, "dt must be > 0");
-    }
-    if (builder.input.numSteps < 0) {
-        failFile(builder, "steps must be >= 0");
-    }
-    if (builder.input.length && *builder.input.length <= 0.0) {
-        failFile(builder, "length must be > 0");
+    try {
+        validateRunSettings(builder.input);
+    } catch (const std::invalid_argument &error) {
+        failFile(builder, error.what());
     }
 }
 

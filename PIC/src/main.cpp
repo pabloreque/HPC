@@ -29,24 +29,20 @@ its own group (full list in README.md), e.g.:
 
 #include <H5Cpp.h>
 
-#include <algorithm>
 #include <cmath>
 #include <cstddef>
 #include <cstdio>
 #include <exception>
-#include <filesystem>
 #include <iostream>
 #include <string>
 #include <vector>
 
 #include "boris_pusher.hpp"
 #include "cli.hpp"
-#include "field_solver.hpp"
-#include "grid.hpp"
 #include "hdf5_writer.hpp"
 #include "hybrid_step.hpp"
 #include "input.hpp"
-#include "loader.hpp"
+#include "simulation.hpp"
 #include "vector3.hpp"
 
 // Averages the velocity over all recorded samples.
@@ -69,65 +65,34 @@ void printSummary(const Trajectory &trajectory) {
                 std::fabs(speedN - speed0), mean.x, mean.y, mean.z);
 }
 
-// Writes one trajectory: flat into 'group' for a single-particle run,
-// into a particle_<index> subgroup otherwise.
+// Writes one trajectory and its particle's q, m: flat into 'group' for a
+// single-particle run, into a particle_<index> subgroup otherwise.
 void writeParticle(H5::Group &group, const Trajectory &trajectory,
-                   std::size_t index, std::size_t particleCount) {
-    if (particleCount == 1) {
-        writeTrajectory(group, trajectory);
-        return;
-    }
-    H5::Group sub = group.createGroup("particle_" + std::to_string(index));
-    writeTrajectory(sub, trajectory);
+                   const Species &species, std::size_t index,
+                   std::size_t particleCount) {
+    H5::Group target =
+        particleCount == 1
+            ? group
+            : group.createGroup("particle_" + std::to_string(index));
+    writeTrajectory(target, trajectory);
+    writeSpeciesAttributes(target, species);
 }
 
 // Runs every particle in input, writing each trajectory under 'group'
 // (flat for a single particle, particle_N subgroups otherwise).
 void runTestParticles(const Input &input, H5::Group &group,
                       const RunConfig &config) {
-    const EMFields fields{input.E, input.B};
-    const std::size_t count = input.particles.size();
+    const std::vector<Trajectory> trajectories = simulateTestParticles(input);
+    const std::size_t count = trajectories.size();
     for (std::size_t p = 0; p < count; ++p) {
-        const Trajectory trajectory = simulateBorisPusher(
-            input.particles[p], fields, input.dt, input.numSteps, input.length);
-        writeParticle(group, trajectory, p, count);
+        writeParticle(group, trajectories[p], input.particles[p].species, p,
+                      count);
         std::cout << "particle " << p << " -> " << config.groupName << ":";
-        printSummary(trajectory);
+        printSummary(trajectories[p]);
     }
     std::cout << "Wrote " << count << " trajector" << (count == 1 ? "y" : "ies")
               << " from '" << config.inputPath << "' to '" << config.outputPath
               << config.groupName << "'\n";
-}
-
-// Magnetic energy sum(B^2/2) dx over the grid.
-double magneticEnergy(const HybridState &state) {
-    double sum = 0.0;
-    for (const Field *component : {&state.B.x, &state.B.y, &state.B.z}) {
-        for (double b : component->values) {
-            sum += 0.5 * b * b;
-        }
-    }
-    return sum * state.grid.dx;
-}
-
-// Ion kinetic energy sum(w m v^2/2) dx over all macroparticles.
-double kineticEnergy(const HybridState &state) {
-    double sum = 0.0;
-    for (const Particle1D &particle : state.particles) {
-        sum += 0.5 * particle.weight * particle.species.mass *
-               dot(particle.velocity, particle.velocity);
-    }
-    return sum * state.grid.dx;
-}
-
-// Largest |dBx/dx|: the discrete div B of the 1D Yee mesh.
-double maxDivergenceB(const HybridState &state) {
-    const Field divB = derivativeX(state.B.x, state.grid);
-    double largest = 0.0;
-    for (double value : divB.values) {
-        largest = std::max(largest, std::fabs(value));
-    }
-    return largest;
 }
 
 // Prints magnetic, kinetic and total energy plus max |div B| of a state.
@@ -140,73 +105,28 @@ void printEnergies(const char *label, const HybridState &state) {
                 wK, wB + wK, maxDivergenceB(state));
 }
 
-// Warns on stderr if dt exceeds the approximate stability limit of the
-// grid-scale whistler and hyper-resistive damping.
-void warnIfUnstable(const Input &input, const Grid1D &grid) {
-    const HybridSettings &settings = *input.hybrid;
-    const double limit =
-        timestepLimit(grid, norm(input.B), minimumDensity(settings.population),
-                      settings.electrons.hyperResistivity);
-    if (input.dt > limit) {
-        std::cerr << "warning: dt=" << input.dt << " exceeds the stability "
-                  << "limit ~" << limit << " (grid whistler"
-                  << (settings.electrons.hyperResistivity > 0.0
-                          ? " + hyper-resistivity)\n"
-                          : ", n dx^2 / 2|B0|)\n");
+// Prints every stability warning of a hybrid run on stderr.
+void printStabilityWarnings(const HybridRun &run) {
+    for (const std::string &warning :
+         stabilityWarnings(run.input, run.state.grid)) {
+        std::cerr << "warning: " << warning << "\n";
     }
-}
-
-// Warns on stderr if a single ICN correction is requested: it is first
-// order and lets whistlers grow at every dt.
-void warnIfSingleCorrection(const Input &input) {
-    if (input.hybrid->iterations == 1) {
-        std::cerr << "warning: iterations=1 is unstable for whistlers "
-                  << "(|g|^2 = 1 + (omega dt)^4/4); use 2\n";
-    }
-}
-
-// Builds the initial hybrid state from the input settings.
-HybridState initialHybridState(const Input &input, const Grid1D &grid) {
-    const HybridSettings &settings = *input.hybrid;
-    return initializeState(grid,
-                           initialMagneticField(input.B, settings.wave, grid),
-                           loadPlasma(settings.population, settings.wave, grid),
-                           settings.electrons);
-}
-
-// Advances 'state' input.numSteps hybrid steps, taking a snapshot at
-// t = 0 and every output_every steps.
-std::vector<FieldSnapshot> runHybridLoop(HybridState &state,
-                                         const Input &input) {
-    const HybridSettings &settings = *input.hybrid;
-    const HybridParameters params{input.dt, settings.iterations,
-                                  settings.electrons};
-    std::vector<FieldSnapshot> history{takeSnapshot(state, 0.0)};
-    for (int step = 1; step <= input.numSteps; ++step) {
-        hybridStep(state, params);
-        if (step % settings.outputEvery == 0) {
-            history.push_back(takeSnapshot(state, step * input.dt));
-        }
-    }
-    return history;
 }
 
 // Runs the self-consistent hybrid PIC simulation and writes the field
 // history under 'group'.
 void runHybrid(const Input &input, H5::Group &group, const RunConfig &config) {
-    const Grid1D grid = makeGrid(input.hybrid->nx, *input.length);
-    warnIfUnstable(input, grid);
-    warnIfSingleCorrection(input);
-    HybridState state = initialHybridState(input, grid);
-    std::cout << "hybrid: nx=" << grid.nx
-              << " particles=" << state.particles.size()
+    HybridRun run = startHybridRun(input);
+    printStabilityWarnings(run);
+    std::cout << "hybrid: nx=" << run.state.grid.nx
+              << " particles=" << run.state.particles.size()
               << " steps=" << input.numSteps << "\n";
-    printEnergies("initial", state);
-    const std::vector<FieldSnapshot> history = runHybridLoop(state, input);
-    printEnergies("final  ", state);
-    writeFieldHistory(group, history, grid);
-    std::cout << "Wrote " << history.size() << " snapshot"
-              << (history.size() == 1 ? "" : "s") << " from '"
+    printEnergies("initial", run.state);
+    advanceHybridRun(run, input.numSteps);
+    printEnergies("final  ", run.state);
+    writeFieldHistory(group, run.history, run.state.grid);
+    std::cout << "Wrote " << run.history.size() << " snapshot"
+              << (run.history.size() == 1 ? "" : "s") << " from '"
               << config.inputPath << "' to '" << config.outputPath
               << config.groupName << "'\n";
 }
@@ -215,13 +135,9 @@ void runHybrid(const Input &input, H5::Group &group, const RunConfig &config) {
 // the mode selected by the input file.
 void runSimulation(const Input &input, const RunConfig &config) {
     H5::Exception::dontPrint();
-    // Reopen an existing .h5 read-write to keep its other groups;
-    // otherwise create it from scratch.
-    H5::H5File file(config.outputPath,
-                    std::filesystem::exists(config.outputPath) ? H5F_ACC_RDWR
-                                                               : H5F_ACC_TRUNC);
-    replaceGroup(file, config.groupName);
-    H5::Group group = file.createGroup(config.groupName);
+    H5::H5File file = openOutputFile(config.outputPath);
+    H5::Group group = recreateGroup(file, config.groupName);
+    writeRunAttributes(group, input);
     if (input.hybrid) {
         runHybrid(input, group, config);
     } else {

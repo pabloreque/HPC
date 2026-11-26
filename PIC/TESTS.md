@@ -96,7 +96,11 @@ The measured errors divided by these estimates are 0.987, 0.997, 0.999, 1.000 fo
 
 ## Input parser (`test_input.cpp`)
 
-These tests do not check physics. They check that a malformed input fails loudly instead of running with wrong values. A valid file is read exactly; malformed numbers, unknown keys, missing required keys, inconsistent hybrid settings and bad profile files are rejected with a `path:line` message. A missing `q=` line, for example, must not silently reuse the previous particle's charge. The comparisons are exact, with no tolerances.
+These tests do not check physics. They check that a malformed input fails loudly instead of running with wrong values. A valid file is read exactly; malformed numbers, unknown keys, missing required keys, inconsistent hybrid settings and bad profile files are rejected with a `path:line` message. A missing `q=` line, for example, must not silently reuse the previous particle's charge. Profiles built in memory (as the Python module does) go through the same checks: a profile whose length is not $n_x$ would make the loader read or write out of bounds, so it is rejected, as are $n \le 0$, $v_{th} < 0$ and a wave on top of a profile. The comparisons are exact, with no tolerances.
+
+## Python bindings (`python/test_bindings.py`)
+
+A pytest suite, run by `ctest` as `python_bindings`. It does not check physics. It checks that the Python module runs exactly what the C++ driver runs. With the same input and seed, the arrays of `HybridSimulation.history()` and `run_test_particles()` and the file written by `save()` must be bit-identical to the driver's HDF5 output, datasets and attributes alike. NumPy profiles must load exactly like the same values in a profile file. Bad keyword arguments must raise `ValueError`, or `TypeError` for an unknown name. An unstable `dt` must raise a `RuntimeWarning`. The only tolerance, in `wave_frequency`, is round-off ($4\varepsilon$): C++ and NumPy evaluate the same formula.
 
 ## Field solver (`test_field_solver.cpp`)
 
