@@ -297,6 +297,19 @@ Session 3:
 - Thermal noise: spectral power on the R and L branches.
 - Density profile (`density_sine`): $n(x, 0)$ matches `density_sine_profile.txt` ($1 + 0.01\cos kx$, $k = 0.1$) within $\sim 10^{-5}$, and the density bump oscillates as a standing ion acoustic wave with $\omega = 0.0999$ (analytic $k\sqrt{T_e} = 0.1$).
 
+## Changelog
+
+Sessions 2 and 3 are described in their own sections above (tags `session-2` and `session-3-unstable`). Later work:
+
+### November 26 2026: Python front end and discrete dispersion
+
+- **Python module** (`4444ab5`). `pic_prequeijo` (pybind11, `python/bindings.cpp`) runs both modes from Python on the same headers as the driver. `HybridSimulation` is built from a `.txt` file or from keywords named like its keys, with `density`/`vth` as numbers or NumPy profiles. It advances on demand and returns snapshots, current fields, particles and energies as NumPy arrays named like the HDF5 datasets. `run_test_particles` and `wave_frequency` complete it. The run loop moved from `main.cpp` to `src/simulation.hpp`, so Python and the driver run the same code. A pytest suite, run by `ctest`, checks them bit for bit. In-memory profiles are validated like a profile file.
+- **Run settings in HDF5** (`4444ab5`). Every group stores the input settings as attributes named like the `.txt` keys, and every trajectory stores its `q` and `m`. The notebooks read them instead of copying values from the input files.
+- **Code structure** (`3362507`, `0fc3cf4`). `input.hpp` is split into the `Input` struct and its checks (`input.hpp`), the key=value line reader (`parse.hpp`) and the `.txt` parser (`input_file.hpp`). `hybrid_input.hpp` is renamed `hybrid_settings.hpp`. Field snapshots and test-particle trajectories have their own headers (`snapshot.hpp`, `trajectory.hpp`), shared by the HDF5 writer and Python. Repeated code is factored out (`leftNeighbour`, one `kPi`, `trajectoryColumns`, `Energies`), and the unused `initialDensity` is removed. All outputs are unchanged bit for bit.
+- **Analysis notebooks** (`6c11399`). `python/pic_analysis.py` holds what the notebooks share: plot style with a fixed, colorblind-checked color order, HDF5 loading with the run settings, `mode_frequency` and `plot_wave_branches`. It has its own tests. The new `analysis_python.ipynb` scans 24 R/L eigenmodes over $kd_i = 0.25\dots3$, checks that the frequency error converges as $\Delta x^2$, and plots the ions of the ion acoustic wave in phase space against the linear solution.
+- **Discrete dispersion relation** (`d4c0d01`). On the mesh the R and L waves obey $\omega^2 + (K^2 - \sigma)\,\omega - K^2 = 0$: the Yee wavenumber $K$, and the reduction $\sigma$ of the ion response by the linear shape (see [the eigenmodes](#session-3-hybrid-pic-and-periodic-boundaries) and [TESTS.md](TESTS.md)). It accounts for 98.7 to 99.9 % of the measured frequency error. It also explains an error $\propto k\,\Delta x^2$ at small $k$ that the earlier estimate $(k\Delta x)^2/4$ missed. The eigenmode tests now compare with it, with a tolerance about 17 times tighter for the R mode. In Python: `pic.discrete_wave_frequency`.
+- **CI** (`8573f53`). The workflow builds the Python module, runs pytest, and uses the Node 24 versions of `actions/checkout` and `actions/setup-python` (v7).
+
 ## Next steps
 
 - 2D/3D Yee mesh (add the y/z directions to the centering-aware operators).
