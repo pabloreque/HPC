@@ -427,19 +427,40 @@ std::vector<Particle3D> particlesFromArrays(const py::handle &q,
 // Analytic references
 // ---------------------------------------------------------------------------
 
-// Cold-plasma eigenfrequency of branch "R" or "L" at wavenumber k: a
-// number for a scalar k, an array of the same shape otherwise.
-py::object waveFrequencies(const DoubleArray &k, const std::string &name) {
-    const WaveBranch branch = parseWaveBranch(name);
+// Applies 'frequency' to every wavenumber of k: a number for a scalar k,
+// an array of the same shape otherwise.
+py::object mapWavenumbers(const DoubleArray &k,
+                          const std::function<double(double)> &frequency) {
     py::array_t<double> omega(
         std::vector<py::ssize_t>(k.shape(), k.shape() + k.ndim()));
     for (py::ssize_t i = 0; i < k.size(); ++i) {
-        omega.mutable_data()[i] = waveFrequency(k.data()[i], branch);
+        omega.mutable_data()[i] = frequency(k.data()[i]);
     }
     if (k.ndim() == 0) {
         return py::float_(*omega.data());
     }
     return std::move(omega);
+}
+
+// Cold-plasma eigenfrequency of branch "R" or "L" at wavenumber k: a
+// number for a scalar k, an array of the same shape otherwise.
+py::object waveFrequencies(const DoubleArray &k, const std::string &name) {
+    const WaveBranch branch = parseWaveBranch(name);
+    return mapWavenumbers(
+        k, [branch](double kk) { return waveFrequency(kk, branch); });
+}
+
+// Eigenfrequency of branch "R" or "L" on the discrete scheme (Yee curl,
+// linear shape, 'ppc' evenly spaced cold ions per cell of size dx), with
+// the shape of k.
+py::object discreteWaveFrequencies(const DoubleArray &k, double dx, int ppc,
+                                   const std::string &name) {
+    const WaveBranch branch = parseWaveBranch(name);
+    require(dx > 0.0, "dx must be > 0");
+    require(ppc > 0, "ppc must be > 0");
+    return mapWavenumbers(k, [=](double kk) {
+        return discreteWaveFrequency(kk, dx, ppc, branch);
+    });
 }
 
 // ---------------------------------------------------------------------------
@@ -539,6 +560,32 @@ Parameters
 ----------
 k : float or array
     Wavenumber, k > 0, in 1/d_i.
+branch : {"R", "L"}
+    "L" gives omega > 0, "R" (whistler) gives omega < 0.
+
+Returns
+-------
+float or ndarray
+    omega in units of Omega_ci, with the shape of k.
+)doc";
+
+constexpr const char *kDiscreteWaveFrequencyDoc = R"doc(
+Eigenfrequency of the parallel R or L wave on the discrete scheme of this
+code: the roots of omega^2 + (K^2 - sigma) omega - K^2 = 0, with the Yee
+wavenumber K = (2/dx) sin(k dx/2) and the linear-shape ion response
+deficit sigma = 4 sin^2(k dx/2) (1/6 + 1/(12 ppc^2)) (src/loader.hpp).
+It is the exact linear dispersion of the code's spatial discretization
+for cold ions loaded by the driver (evenly spaced), and tends to
+wave_frequency as dx -> 0.
+
+Parameters
+----------
+k : float or array
+    Wavenumber, k > 0, in 1/d_i.
+dx : float
+    Cell size, in d_i.
+ppc : int
+    Macroparticles per cell.
 branch : {"R", "L"}
     "L" gives omega > 0, "R" (whistler) gives omega < 0.
 
@@ -674,4 +721,7 @@ PYBIND11_MODULE(pic_prequeijo, module) {
     bindTestParticles(module);
     module.def("wave_frequency", &waveFrequencies, py::arg("k"),
                py::arg("branch"), kWaveFrequencyDoc);
+    module.def("discrete_wave_frequency", &discreteWaveFrequencies,
+               py::arg("k"), py::arg("dx"), py::arg("ppc"), py::arg("branch"),
+               kDiscreteWaveFrequencyDoc);
 }

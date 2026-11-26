@@ -50,6 +50,7 @@ instead of a mix of R and L.
 #include <vector>
 
 #include "boris_pusher.hpp"
+#include "field_solver.hpp"
 #include "grid.hpp"
 #include "shape.hpp"
 #include "vector3.hpp"
@@ -98,6 +99,26 @@ inline double waveFrequency(double k, WaveBranch branch) {
     const double root = std::sqrt(1.0 + 4.0 / (k * k));
     return branch == WaveBranch::L ? 0.5 * k * k * (root - 1.0)
                                    : -0.5 * k * k * (root + 1.0);
+}
+
+// Signed eigenfrequency of the branch on the discrete scheme, for cold
+// ions loaded at 'particlesPerCell' evenly spaced positions per cell of
+// size dx.
+// Repeating the derivation of the header comment with the Yee curl
+// (k -> K, yeeWavenumber) and the linear-shape ion response (deposited
+// ion velocity times 1 - sigma, shapeResponseDeficit) gives
+// omega^2 + (K^2 - sigma) omega - K^2 = 0. sigma weakens the ion current
+// against the Hall current and enters as -sigma omega, not through k^2,
+// so at small k it shifts omega by sigma/2 ~ (k dx)^2/12: a relative
+// error ~ k dx^2/12 (in d_i), larger than the curl's (k dx)^2/24.
+inline double discreteWaveFrequency(double k, double dx, int particlesPerCell,
+                                    WaveBranch branch) {
+    const double K = yeeWavenumber(k, dx);
+    const double sigma = shapeResponseDeficit(k, dx, particlesPerCell);
+    const double linear = K * K - sigma;
+    const double root = std::sqrt(linear * linear + 4.0 * K * K);
+    return branch == WaveBranch::L ? 0.5 * (-linear + root)
+                                   : 0.5 * (-linear - root);
 }
 
 // Complex transverse magnetic perturbation b = By + i*Bz at x, t = 0.

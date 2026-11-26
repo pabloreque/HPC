@@ -31,6 +31,7 @@ a primal quantity differentiates onto dual nodes and vice versa.
 */
 #pragma once
 
+#include <cmath>
 #include <cstddef>
 #include <utility> // std::move: hand j, v_e, lap(j) to OhmInputs
 #include <vector>
@@ -53,6 +54,12 @@ struct ElectronModel {
 // x_i lies between dual i-1 and i (x_{i-1/2}, x_{i+1/2}).
 constexpr int leftNeighbour(int i, Centering input) {
     return input == Centering::Primal ? i : i - 1;
+}
+
+// Wavenumber seen by the Yee derivatives on spacing dx: the centered
+// difference of exp(ikx) is i K exp(ikx), K = (2/dx) sin(k dx/2) < k.
+inline double yeeWavenumber(double k, double dx) {
+    return 2.0 / dx * std::sin(0.5 * k * dx);
 }
 
 // d/dx of a field, landing on the opposite centering: each output node

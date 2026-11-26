@@ -117,6 +117,8 @@ $$\omega^2 + k^2\omega - k^2 = 0 \quad\Rightarrow\quad \omega = \frac{k^2}{2}\le
 
 The $+$ root ($\omega > 0$) is the **L** wave: it rotates with the ions and saturates at the ion cyclotron frequency, $\omega \to \Omega_{ci} = 1$ as $k\to\infty$. The $-$ root ($\omega < 0$) is the **R** wave or whistler: it rotates with the electrons and grows as $\omega \approx -k^2$, because the electron resonance $\Omega_{ce}$ is infinite for massless electrons. For $k d_i \ll 1$ both reduce to the Alfvén wave, $|\omega| = k$. At $k d_i = 1$, $\omega_L = (\sqrt5 - 1)/2 = 0.618$ and $\omega_R = -(\sqrt5 + 1)/2 = -1.618$. Adding a dissipative term $\eta' j$ to Ohm's law (step 4) replaces $k^2$ by $a = k^2(1 + i\eta')$, which gives the hyper-resistive rates above.
 
+On the mesh the same derivation gives $\omega^2 + (K^2 - \sigma)\,\omega - K^2 = 0$, with the Yee wavenumber $K = (2/\Delta x)\sin(k\Delta x/2)$ and $\sigma = 4\sin^2(k\Delta x/2)\,(1/6 + 1/(12\,\text{ppc}^2))$, by which the linear shape (gather, then deposit) reduces the ion response (`discreteWaveFrequency`, also `pic.discrete_wave_frequency` in Python). It is the exact linear dispersion of the code's spatial discretization, and the eigenmode tests compare with it; see [TESTS.md](TESTS.md).
+
 **Validation.** The Catch2 suite checks each part (periodic folding, shape function, initial load, input, field solver, eigenmodes, hyper-resistivity, ICN order and stability) against an analytic reference; [TESTS.md](TESTS.md) gives the physics and the tolerance of each test. `analysis_session_3.ipynb` shows the same comparisons as plots.
 
 ## Project layout

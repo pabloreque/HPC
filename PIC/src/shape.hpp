@@ -173,6 +173,25 @@ inline Field depositTemperature(const std::vector<Particle1D> &particles,
     return temperature;
 }
 
+// Mean of f (1 - f) over the fractional positions f = (q + 1/2)/ppc,
+// q = 0 ... ppc-1, of 'particlesPerCell' evenly spaced particles in a
+// cell: 1/6 + 1/(12 ppc^2), and 1/6 for a continuum.
+inline double meanShapeOverlap(int particlesPerCell) {
+    const double ppc = particlesPerCell;
+    return 1.0 / 6.0 + 1.0 / (12.0 * ppc * ppc);
+}
+
+// Fraction sigma by which a grid mode exp(ikx) shrinks when it is
+// interpolated to evenly spaced particles and deposited back with the
+// linear shape. A particle at fraction f of a cell sees (1 - f) E_i +
+// f E_{i+1} and returns the same weights, so node i gets back
+// 1 - 2 f (1 - f)(1 - cos k dx) of the mode: sigma = 4 sin^2(k dx/2)
+// <f (1 - f)>. Exact for particles that do not move along x.
+inline double shapeResponseDeficit(double k, double dx, int particlesPerCell) {
+    const double halfPhase = std::sin(0.5 * k * dx);
+    return 4.0 * halfPhase * halfPhase * meanShapeOverlap(particlesPerCell);
+}
+
 // Interpolates the Yee-mesh E and B at a particle position x.
 inline EMFields gatherFields(const VecField &E, const VecField &B, double x,
                              const Grid1D &grid) {

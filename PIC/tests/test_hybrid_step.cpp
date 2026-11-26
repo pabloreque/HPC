@@ -51,19 +51,55 @@ constexpr int kConvergenceCells = 32;
 constexpr double kReferenceRefinement = 16.0;
 // Operations of the closed-form waveFrequency, rounded up.
 constexpr double kDispersionOperations = 10.0;
+// Largest relative velocity error of linear interpolation of exp(ikx)
+// inside a cell, f (1 - f)(k dx)^2/2 at most, divided by (k dx)^2.
+constexpr double kInterpolationMismatch = 1.0 / 8.0;
 
-// Relative error of a computed eigenfrequency at wavenumber k: the Yee
-// curl, applied twice, changes k^2 by (k dx)^2/12, and the linear shape
-// smooths the ion response by (k dx)^2/12 in each of the gather and the
-// deposit; |d ln omega / d ln k^2| <= 1 carries these to omega.
-double dispersionError(double k, double dx) {
-    return (k * dx) * (k * dx) / 4.0;
+// Macroparticles per cell of a hybrid state (the loader puts the same
+// number in every cell).
+int particlesPerCell(const HybridState &state) {
+    return static_cast<int>(state.particles.size()) / state.grid.nx;
 }
 
-// Wavenumber k as seen by the Yee curl on spacing dx: the centered
-// difference of exp(ikx) gives i (2/dx) sin(k dx/2).
-double yeeWavenumber(double k, double dx) {
-    return 2.0 / dx * std::sin(0.5 * k * dx);
+// Relative mismatch between the loaded eigenmode and the discrete one of
+// the same branch. The loader gives each ion the continuous velocity
+// v = -(k/omega) b at its own position, while the discrete eigenmode has
+// v/b = -omega_d/(K (1 - omega_d)) (ion equation with the Yee wavenumber
+// K), linearly interpolated between nodes. The difference excites the
+// other branch, which beats with the mode; its relative amplitude stays
+// below this mismatch (measured: 2.6e-4 for R, 6.8e-4 for L, against
+// bounds of 1.3e-3 and 3.0e-3; free ion gyration stays near 1e-6).
+double loadMismatch(double k, double dx, int ppc, WaveBranch branch) {
+    const double omega = waveFrequency(k, branch);
+    const double omegaDiscrete = discreteWaveFrequency(k, dx, ppc, branch);
+    const double K = yeeWavenumber(k, dx);
+    const double loaded = -k / omega;
+    const double discrete = -omegaDiscrete / (K * (1.0 - omegaDiscrete));
+    return std::fabs(discrete / loaded - 1.0) +
+           kInterpolationMismatch * (k * dx) * (k * dx);
+}
+
+// Relative error of a frequency measured from the phase accumulated over
+// 'periods' periods, when other modes of relative amplitude 'mismatch'
+// beat with the measured one: the phase is off by at most 'mismatch' at
+// each end.
+double beatBias(double mismatch, double periods) {
+    return 2.0 * mismatch / (2.0 * kPi * periods);
+}
+
+// Relative frequency error of ICN with 2 corrections on an oscillation:
+// arg g(i omega dt) = -omega dt (1 - (omega dt)^2/12) + O(dt^5).
+double icnFrequencyError(double omega, double dt) {
+    return omega * dt * omega * dt / 12.0;
+}
+
+// Allowed relative error of a frequency measured over 'periods' periods
+// against discreteWaveFrequency, which is exact for the spatial
+// discretization: only the time step and the beats remain.
+double discreteFrequencyTolerance(double omega, double dt, double mismatch,
+                                  double periods) {
+    return kSafetyFactor *
+           (icnFrequencyError(omega, dt) + beatBias(mismatch, periods));
 }
 
 // ICN amplification factor per step of db/dt = -lambda b, z = lambda dt:
@@ -174,21 +210,30 @@ double hyperResistiveGrowthRate(WaveBranch branch, double nu) {
     return measureGrowthRate(scenario, kGrowthDuration);
 }
 
-// Allowed error of a growth rate 'gamma' fitted over kGrowthDuration at
-// k d_i = 1 with effective resistivity etaPrime. The ideal initial
-// eigenvector misses the discrete dissipative one by a relative
-// dispersionError + eta', which excites the other branch with that
-// relative amplitude; a least-squares line through a beat of amplitude
-// A and frequency W over a time T has a slope of at most 12 A / (W T^2).
-// The discretization adds dispersionError to gamma itself.
-double growthRateTolerance(double gamma, double etaPrime) {
-    const double discretization = dispersionError(1.0, kWaveDx);
+// Relative discretization error of the k d_i = 1 frequency of 'branch' on
+// the wave-test grid (4 ions per cell): discrete against continuous.
+double discretizationError(WaveBranch branch) {
+    const double omega = waveFrequency(1.0, branch);
+    return std::fabs(discreteWaveFrequency(1.0, kWaveDx, 4, branch) / omega -
+                     1.0);
+}
+
+// Allowed error of a growth rate 'gamma' of 'branch' fitted over
+// kGrowthDuration at k d_i = 1 with effective resistivity etaPrime. The
+// loaded ideal eigenmode misses the discrete dissipative one by a
+// relative loadMismatch + eta', which excites other modes with that
+// relative amplitude; a least-squares line through a beat of amplitude A
+// and frequency W = omega_L - omega_R over a time T has a slope of at
+// most 12 A / (W T^2). The discretization changes gamma itself by its
+// relative error.
+double growthRateTolerance(double gamma, double etaPrime, WaveBranch branch) {
+    const double mismatch = loadMismatch(1.0, kWaveDx, 4, branch) + etaPrime;
     const double beatFrequency =
         waveFrequency(1.0, WaveBranch::L) - waveFrequency(1.0, WaveBranch::R);
     const double beatingBias =
-        12.0 * (discretization + etaPrime) /
-        (beatFrequency * kGrowthDuration * kGrowthDuration);
-    return kSafetyFactor * (beatingBias + discretization * std::fabs(gamma));
+        12.0 * mismatch / (beatFrequency * kGrowthDuration * kGrowthDuration);
+    return kSafetyFactor *
+           (beatingBias + discretizationError(branch) * std::fabs(gamma));
 }
 
 // Largest |By|, |Bz| difference between two magnetic fields.
@@ -326,43 +371,74 @@ double exactStabilityLimit(const Grid1D &grid, double nu) {
     return stable;
 }
 
+// Checks that the eigenmode of 'branch' at k d_i = 1, run for 'periods'
+// periods, oscillates at the discrete frequency of the scheme and keeps
+// its amplitude, and returns the final scenario.
+HybridScenario checkEigenmode(WaveBranch branch, double periods) {
+    HybridScenario scenario = waveScenario(branch, kWaveCells, kWaveDt);
+    const double k = waveNumber(scenario.wave, scenario.state.grid);
+    const int ppc = particlesPerCell(scenario.state);
+    const double omega = discreteWaveFrequency(k, kWaveDx, ppc, branch);
+    const double mismatch = loadMismatch(k, kWaveDx, ppc, branch);
+    const WaveMeasurement measured = measureWave(scenario, periods);
+    REQUIRE(measured.omega ==
+            Catch::Approx(omega).epsilon(
+                discreteFrequencyTolerance(omega, kWaveDt, mismatch, periods)));
+    // Ideal electrons: no damping. The amplitude only beats with the modes
+    // excited by the load mismatch, by at most 2 mismatch.
+    REQUIRE(measured.amplitudeRatio ==
+            Catch::Approx(1.0).margin(kSafetyFactor * 2.0 * mismatch));
+    return scenario;
+}
+
 } // namespace
 
-TEST_CASE("The R-mode (whistler) eigenmode has the analytic frequency",
+TEST_CASE("The R-mode (whistler) eigenmode has the frequency of the "
+          "discrete scheme",
           "[hybrid][wave]") {
-    HybridScenario scenario = waveScenario(WaveBranch::R, kWaveCells, kWaveDt);
-    const double k = waveNumber(scenario.wave, scenario.state.grid);
-    const double omega = waveFrequency(k, WaveBranch::R);
-    const WaveMeasurement measured = measureWave(scenario, 3.0);
-    // k d_i = 1: omega = -(1 + sqrt 5)/2.
+    // k d_i = 1: the continuous frequency is -(1 + sqrt 5)/2.
+    const double omega = waveFrequency(1.0, WaveBranch::R);
     REQUIRE(omega == Catch::Approx(-(1.0 + std::sqrt(5.0)) / 2.0)
                          .margin(roundoffTolerance(kDispersionOperations,
                                                    std::fabs(omega))));
-    const double tolerance = kSafetyFactor * dispersionError(k, kWaveDx);
-    REQUIRE(measured.omega == Catch::Approx(omega).epsilon(tolerance));
-    // Ideal electrons: no damping. The amplitude only beats with the
-    // other branch, excited because the loaded (continuous) eigenvector
-    // misses the discrete one by dispersionError.
-    REQUIRE(measured.amplitudeRatio == Catch::Approx(1.0).margin(tolerance));
+    const HybridScenario scenario = checkEigenmode(WaveBranch::R, 3.0);
     for (const Particle1D &p : scenario.state.particles) {
         REQUIRE(p.position >= 0.0);
         REQUIRE(p.position < scenario.state.grid.length);
     }
 }
 
-TEST_CASE("The L-mode (ion cyclotron) eigenmode has the analytic frequency",
+TEST_CASE("The L-mode (ion cyclotron) eigenmode has the frequency of the "
+          "discrete scheme",
           "[hybrid][wave]") {
-    HybridScenario scenario = waveScenario(WaveBranch::L, kWaveCells, kWaveDt);
-    const double k = waveNumber(scenario.wave, scenario.state.grid);
-    const double omega = waveFrequency(k, WaveBranch::L);
-    const WaveMeasurement measured = measureWave(scenario, 2.0);
-    // k d_i = 1: omega = (sqrt 5 - 1)/2.
+    // k d_i = 1: the continuous frequency is (sqrt 5 - 1)/2.
+    const double omega = waveFrequency(1.0, WaveBranch::L);
     REQUIRE(omega == Catch::Approx((std::sqrt(5.0) - 1.0) / 2.0)
                          .margin(roundoffTolerance(kDispersionOperations,
                                                    std::fabs(omega))));
-    const double tolerance = kSafetyFactor * dispersionError(k, kWaveDx);
-    REQUIRE(measured.omega == Catch::Approx(omega).epsilon(tolerance));
-    REQUIRE(measured.amplitudeRatio == Catch::Approx(1.0).margin(tolerance));
+    checkEigenmode(WaveBranch::L, 2.0);
+}
+
+TEST_CASE("The discrete frequency tends to the analytic one as dx^2",
+          "[hybrid][wave][dispersion]") {
+    // Pure arithmetic of discreteWaveFrequency: halving dx divides its
+    // distance to waveFrequency by 4, up to the next order (k dx)^2.
+    for (const WaveBranch branch : {WaveBranch::R, WaveBranch::L}) {
+        for (const double k : {0.25, 1.0, 3.0}) {
+            CAPTURE(branch == WaveBranch::R ? "R" : "L", k);
+            const double omega = waveFrequency(k, branch);
+            const double coarse =
+                discreteWaveFrequency(k, kWaveDx, 4, branch) - omega;
+            const double fine =
+                discreteWaveFrequency(k, kWaveDx / 2.0, 4, branch) - omega;
+            REQUIRE(
+                coarse / fine ==
+                Catch::Approx(expectedConvergenceRatio(
+                                  2, std::numeric_limits<double>::infinity()))
+                    .margin(convergenceRatioTolerance(
+                        2, spatialTruncation(k, kWaveDx))));
+        }
+    }
 }
 
 TEST_CASE("ICN is second order with 2 corrections, first order with 1",
@@ -381,9 +457,11 @@ TEST_CASE("Hyper-resistivity damps the R mode and drives the L mode at the "
     REQUIRE(gammaR < 0.0);
     REQUIRE(gammaL > 0.0);
     REQUIRE(hyperResistiveGrowthRate(WaveBranch::R, nu) ==
-            Catch::Approx(gammaR).margin(growthRateTolerance(gammaR, nu)));
+            Catch::Approx(gammaR).margin(
+                growthRateTolerance(gammaR, nu, WaveBranch::R)));
     REQUIRE(hyperResistiveGrowthRate(WaveBranch::L, nu) ==
-            Catch::Approx(gammaL).margin(growthRateTolerance(gammaL, nu)));
+            Catch::Approx(gammaL).margin(
+                growthRateTolerance(gammaL, nu, WaveBranch::L)));
 }
 
 TEST_CASE("The timestep limit matches the ICN stability boundary",
@@ -422,15 +500,27 @@ TEST_CASE("Small hyper-resistivity changes long waves only at the "
             HybridScenario scenario =
                 waveScenario(branch, kWaveCells, kWaveDt, 2, 0.01, electrons);
             const double k = waveNumber(scenario.wave, scenario.state.grid);
-            const double tolerance =
-                kSafetyFactor * dispersionError(k, kWaveDx);
+            const int ppc = particlesPerCell(scenario.state);
+            const double omega = discreteWaveFrequency(k, kWaveDx, ppc, branch);
+            const double mismatch = loadMismatch(k, kWaveDx, ppc, branch);
             const WaveMeasurement measured = measureWave(scenario, 2.0);
-            const double gamma = dissipativeFrequency(k, nu, branch).imag();
+            const std::complex<double> dissipative =
+                dissipativeFrequency(k, nu, branch);
+            // nu also shifts the real frequency, by |Re omega(nu) - omega|
+            // (second order in eta' = nu k^2), and the mismatch grows by
+            // eta' since the loaded eigenmode is the ideal one.
+            const double shift =
+                std::fabs(dissipative.real() / waveFrequency(k, branch) - 1.0);
+            const double etaPrime = nu * k * k;
             REQUIRE(measured.omega ==
-                    Catch::Approx(waveFrequency(k, branch)).epsilon(tolerance));
-            REQUIRE(measured.amplitudeRatio ==
-                    Catch::Approx(std::exp(gamma * measured.duration))
-                        .margin(tolerance));
+                    Catch::Approx(omega).epsilon(
+                        discreteFrequencyTolerance(omega, kWaveDt,
+                                                   mismatch + etaPrime, 2.0) +
+                        kSafetyFactor * shift));
+            REQUIRE(
+                measured.amplitudeRatio ==
+                Catch::Approx(std::exp(dissipative.imag() * measured.duration))
+                    .margin(kSafetyFactor * 2.0 * (mismatch + etaPrime)));
         }
     }
 }

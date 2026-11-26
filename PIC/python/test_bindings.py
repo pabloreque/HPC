@@ -268,3 +268,20 @@ def test_wave_frequency_at_k_di_1():
     assert pic.wave_frequency(1.0, "R") == pytest.approx(-golden_ratio, rel=ROUND_OFF)
     k = np.linspace(0.1, 3.0, 12).reshape(3, 4)
     assert pic.wave_frequency(k, "R").shape == k.shape
+
+
+def test_discrete_wave_frequency_matches_its_formula():
+    k = np.array([0.25, 1.0, 3.0])
+    dx, ppc = 2 * np.pi / 64, 4
+    half_phase = np.sin(k * dx / 2)
+    yee_k = 2 / dx * half_phase
+    sigma = 4 * half_phase**2 * (1 / 6 + 1 / (12 * ppc**2))
+    linear = yee_k**2 - sigma
+    root = np.sqrt(linear**2 + 4 * yee_k**2)
+    expected = {"L": (-linear + root) / 2, "R": (-linear - root) / 2}
+    for branch in ("L", "R"):
+        omega = pic.discrete_wave_frequency(k, dx, ppc, branch)
+        assert omega == pytest.approx(expected[branch], rel=ROUND_OFF)
+        # dx -> 0 recovers the continuous branch (error ~ dx^2 ~ 1e-12).
+        fine = pic.discrete_wave_frequency(k, 1e-6, ppc, branch)
+        assert fine == pytest.approx(pic.wave_frequency(k, branch), rel=1e-9)
