@@ -102,6 +102,8 @@ These tests do not check physics. They check that a malformed input fails loudly
 
 A pytest suite, run by `ctest` as `python_bindings`. It does not check physics. It checks that the Python module runs exactly what the C++ driver runs. With the same input and seed, the arrays of `HybridSimulation.history()` and `run_test_particles()` and the file written by `save()` must be bit-identical to the driver's HDF5 output, datasets and attributes alike. NumPy profiles must load exactly like the same values in a profile file. Bad keyword arguments must raise `ValueError`, or `TypeError` for an unknown name. An unstable `dt` must raise a `RuntimeWarning`. The only tolerance, in `wave_frequency`, is round-off ($4\varepsilon$): C++ and NumPy evaluate the same formula.
 
+`python/test_analysis.py` checks the notebook helpers. `mode_frequency` must recover the frequency of a synthetic pure wave $e^{i(kx - \omega t)}$ to the round-off of a least-squares fit ($10^{-12}$ relative). The HDF5 loaders must return datasets and settings without subgroups, and particles in numeric order (`particle_10` after `particle_2`). `plot_wave_branches` must draw both labelled branches.
+
 ## Field solver (`test_field_solver.cpp`)
 
 Each term of the field equations is checked on a sinusoid, whose exact derivative is known. The truncation tolerance is $2\,(k\Delta x)^2/6$ times the amplitude. The Taylor coefficients of the operators involved (centered derivative 1/24, two-point average 1/8, second derivative 1/12) are all at most 1/6.

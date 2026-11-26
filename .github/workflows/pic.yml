@@ -40,7 +40,7 @@ jobs:
         with:
           python-version: "3.12"
       - name: Install the Python test dependencies
-        run: pip install numpy h5py pytest
+        run: pip install numpy h5py matplotlib pytest
       - name: Configure (fetches Catch2 and pybind11)
         run: >
           cmake -S . -B build -DCMAKE_BUILD_TYPE=Release

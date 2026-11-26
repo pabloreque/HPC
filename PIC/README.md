@@ -145,8 +145,10 @@ PIC/
 │   └── main.cpp                # generic driver
 ├── python/
 │   ├── bindings.cpp            # pybind11 module pic_prequeijo
+│   ├── pic_analysis.py         # notebook helpers: style, HDF5 loading, mode frequency
 │   ├── conftest.py             # pytest: imports the module from build/
-│   └── test_bindings.py        # Python vs driver, bit for bit
+│   ├── test_bindings.py        # Python vs driver, bit for bit
+│   └── test_analysis.py        # tests of pic_analysis
 ├── examples/
 │   ├── cyclotron.txt           # pure-B input
 │   ├── drift.txt               # E×B input
@@ -170,6 +172,7 @@ PIC/
 │   └── test_hybrid_step.cpp    # eigenmodes, hyper-resistivity, ICN order
 ├── analysis_session_2.ipynb    # Session 2: trajectories vs analytic references
 ├── analysis_session_3.ipynb    # Session 3: periodic drift, eigenmodes, dispersion
+├── analysis_python.ipynb       # Python front end: omega(k) scan, convergence, ion phase space
 ├── TESTS.md                    # physics and tolerance of every test
 └── README.md
 ```
@@ -263,14 +266,18 @@ A profile (`density=`, `vth=` as arrays of `nx` values, `bulk_velocity=` as `(nx
 
 ## Analysis notebooks
 
-`analysis_session_2.ipynb` reads `build/results.h5` with `h5py` and plots each Session 2 scenario against its analytic reference (including per-particle checks for the mixed-species runs). `analysis_session_3.ipynb` plots the periodic drift, the R/L eigenmodes (space-time, measured frequency, energy) and the $(k, \omega)$ spectrum of the thermal-noise run against the analytic dispersion branches.
+`analysis_session_2.ipynb` reads `build/results.h5` with `h5py` and plots each Session 2 scenario against its analytic reference (including per-particle checks for the mixed-species runs). `analysis_session_3.ipynb` plots the periodic drift, the R/L eigenmodes (space-time, measured frequency, energy) and the $(k, \omega)$ spectrum of the thermal-noise run against the analytic dispersion branches. Both compute their analytic references from the settings stored as HDF5 attributes, not from values copied out of the input files.
+
+`analysis_python.ipynb` drives the simulation from Python instead (no `results.h5` needed). It scans the R and L eigenmodes over $k d_i = 0.25 \dots 3$, compares the measured $\omega(k)$ with the analytic branches, checks that the frequency error converges as $\Delta x^2$, and plots the ions of the `density_sine` ion acoustic wave in phase space against the linear solution. It runs in about 35 s.
+
+The notebooks share `python/pic_analysis.py`: plot style and colors (a fixed, colorblind-checked categorical order; diverging and one-hue colormaps), `load_group`/`load_particles` (datasets and settings of a run), `mode_frequency` and `plot_wave_branches`. All three need the project built with the Python module (`build/` and `python/` are added to `sys.path` by their first cell).
 
 ```bash
 cd PIC
-jupyter notebook analysis_session_2.ipynb   # or analysis_session_3.ipynb
+jupyter notebook analysis_session_2.ipynb   # or analysis_session_3.ipynb, analysis_python.ipynb
 ```
 
-Run the C++ program first so `build/results.h5` exists before opening the notebook.
+For the two session notebooks, run the C++ program first so `build/results.h5` exists before opening them.
 
 ## Expected result
 
